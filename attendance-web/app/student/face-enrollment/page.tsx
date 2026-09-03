@@ -6,6 +6,9 @@ import Webcam from 'react-webcam';
 import Link from 'next/link';
 import * as faceapi from 'face-api.js';
 
+// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ Render URL อัตโนมัติ)
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+
 // ลำดับมุมและท่าทางที่ต้องการให้ตรวจจับ
 const SCAN_STEPS = [
   { id: 'STRAIGHT', label: 'มองตรงไปที่กล้อง (หน้าตรง)', hint: 'กรุณามองตรงระดับสายตากับกล้อง' },
@@ -162,10 +165,14 @@ export default function FaceEnrollmentPage() {
         const faceFormData = new FormData();
         Array.from(files).forEach(file => faceFormData.append('files', file));
 
-        const aiResponse = await fetch('http://localhost:8000/api/register-face-multi', {
+        const aiResponse = await fetch(`${AI_BASE_URL}/api/register-face-multi`, {
           method: 'POST',
           body: faceFormData
         });
+
+        if (!aiResponse.ok) {
+          throw new Error('เซิร์ฟเวอร์ AI ประมวลผลรูปภาพไม่สำเร็จ');
+        }
 
         const aiResult = await aiResponse.json();
         if (aiResult.success && Array.isArray(aiResult.face_vectors)) {
@@ -232,11 +239,16 @@ export default function FaceEnrollmentPage() {
     }
 
     try {
-      const res = await fetch('http://localhost:8000/api/extract-vector', {
+      const res = await fetch(`${AI_BASE_URL}/api/extract-vector`, {
         method: 'POST',
         body: JSON.stringify({ image: imageSrc }),
         headers: { 'Content-Type': 'application/json' }
       });
+      
+      if (!res.ok) {
+        throw new Error('AI Server responded with error');
+      }
+
       const data = await res.json();
 
       if (data.success && data.vector) {
@@ -331,7 +343,7 @@ export default function FaceEnrollmentPage() {
           // ก้มหน้า
           matched = pitchRatio >= 0.90;
         } else if (currentStep.id === 'UP') {
-          // เงยหน้า: ปลายจมูกยกสูงขึ้นเข้าใกล้ระดับสายตา topDist สั้นลง pitchRatio ลดต่ำลง
+          // เงยหน้า
           matched = pitchRatio <= 0.58;
         }
 

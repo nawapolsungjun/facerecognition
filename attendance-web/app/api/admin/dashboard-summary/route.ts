@@ -3,25 +3,25 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    // 🚀 ดึงข้อมูลทุกอย่างแบบขนาน (Parallel ด้วย Promise.all) เพื่อความเร็วสูงสุดในการโหลดหน้าบ้าน
-    const [teachers, students, courses] = await Promise.all([
-      // 1. ดึงรายชื่ออาจารย์ทั้งหมด
+    const [rawTeachers, rawStudents, rawCourses] = await Promise.all([
+      // 1. ดึงรายชื่ออาจารย์ (ดึงเฉพาะฟิลด์ที่มีจริงในโมเดล Teacher)
       prisma.teacher.findMany({
         select: {
           id: true,
-          name: true,
-          department: true,
+          firstName: true,
+          lastName: true,
         },
       }),
-      // 2. ดึงรายชื่อนักศึกษาทั้งหมด
+      // 2. ดึงรายชื่อนักศึกษา
       prisma.student.findMany({
         select: {
           id: true,
           studentCode: true,
-          name: true,
+          firstName: true,
+          lastName: true,
         },
       }),
-      // 3. ดึงรายวิชาทั้งหมด พร้อมชื่ออาจารย์ และจำนวนนักศึกษาในชั้นเรียน [🚀 แก้ไขจุดพัง]
+      // 3. ดึงรายวิชาทั้งหมด พร้อมชื่ออาจารย์ผู้สอน
       prisma.course.findMany({
         select: {
           id: true,
@@ -29,10 +29,10 @@ export async function GET() {
           courseName: true,
           teacher: {
             select: {
-              name: true,
+              firstName: true,
+              lastName: true,
             },
           },
-          // 🚀 ขยับออกมาให้อยู่ระดับเดียวกับ course ตรงนี้ เพื่อให้นับจำนวนนักศึกษาในวิชานั้นๆ ได้ถูกต้อง
           _count: {
             select: { 
               students: true 
@@ -42,13 +42,37 @@ export async function GET() {
       }),
     ]);
 
-    // 📦 ส่งข้อมูลกลับไปให้หน้าบ้านใน Format ที่ต้องการ
+    // Map ข้อมูลกลับไปให้หน้าบ้านใช้งานได้ครบถ้วน
+    const teachers = rawTeachers.map((t) => ({
+      id: t.id,
+      name: `${t.firstName || ''} ${t.lastName || ''}`.trim() || 'ไม่ระบุชื่อ',
+      department: '',
+    }));
+
+    const students = rawStudents.map((s) => ({
+      id: s.id,
+      studentCode: s.studentCode,
+      name: `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'ไม่ระบุชื่อ',
+    }));
+
+    const courses = rawCourses.map((c) => ({
+      id: c.id,
+      courseCode: c.courseCode,
+      courseName: c.courseName,
+      teacher: c.teacher
+        ? {
+            name: `${c.teacher.firstName || ''} ${c.teacher.lastName || ''}`.trim() || 'ไม่ระบุชื่อ',
+          }
+        : null,
+      _count: c._count,
+    }));
+
     return NextResponse.json({
       success: true,
       stats: {
-        teachersCount: teachers.length, // จำนวนอาจารย์ทั้งหมด
-        studentsCount: students.length, // จำนวนนักศึกษาทั้งหมด
-        coursesCount: courses.length,   // จำนวนวิชาทั้งหมด
+        teachersCount: teachers.length,
+        studentsCount: students.length,
+        coursesCount: courses.length,
       },
       data: {
         teachers,
@@ -56,10 +80,11 @@ export async function GET() {
         courses,
       },
     });
-  } catch (error: any) {
-    console.error("❌ Admin Dashboard Summary Error:", error);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error("❌ Admin Dashboard Summary Error:", errorMessage);
     return NextResponse.json(
-      { success: false, error: "เกิดข้อผิดพลาดในการดึงข้อมูลระบบ" },
+      { success: false, error: "เกิดข้อผิดพลาดในการดึงข้อมูลระบบ: " + errorMessage },
       { status: 500 }
     );
   }

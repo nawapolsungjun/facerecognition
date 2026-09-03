@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 export async function POST(request: Request) {
@@ -17,7 +18,6 @@ export async function POST(request: Request) {
       username 
     } = body;
 
-    // จัดการชื่อจริงและนามสกุล (รองรับทั้งส่งแยก firstName/lastName หรือส่ง name รวมมา)
     let fName = firstName || '';
     let lName = lastName || '';
 
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. ตรวจสอบรหัสนักศึกษาซ้ำ (กรณีเป็นนักศึกษา)
+    // 2. ตรวจสอบรหัสนักศึกษาซ้ำ
     if (role === 'STUDENT') {
       if (!studentCode) {
         return NextResponse.json(
@@ -67,10 +67,9 @@ export async function POST(request: Request) {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // 4. บันทึกข้อมูลด้วย Transaction
-    const newUser = await prisma.$transaction(async (tx) => {
+    const newUser = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const finalUsername = role === 'STUDENT' ? studentCode : (username || email.split('@')[0]);
 
-      // สร้างข้อมูลในตาราง User
       const user = await tx.user.create({
         data: {
           email,
@@ -80,7 +79,6 @@ export async function POST(request: Request) {
         },
       });
 
-      // สร้างข้อมูลตาม Role
       if (role === 'TEACHER') {
         await tx.teacher.create({
           data: {
@@ -119,10 +117,11 @@ export async function POST(request: Request) {
       data: { userId: newUser.id }
     });
 
-  } catch (error: any) {
-    console.error("Admin Register Error:", error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error("Admin Register Error:", errorMessage);
     return NextResponse.json(
-      { success: false, error: 'เกิดข้อผิดพลาดที่เซิร์ฟเวอร์: ' + error.message },
+      { success: false, error: 'เกิดข้อผิดพลาดที่เซิร์ฟเวอร์: ' + errorMessage },
       { status: 500 }
     );
   }

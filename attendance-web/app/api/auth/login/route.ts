@@ -7,12 +7,13 @@ export async function POST(request: Request) {
   try {
     const { email, password } = await request.json();
 
-    // 1. ค้นหาผู้ใช้ พร้อมดึงข้อมูลจากตารางที่เกี่ยวข้อง
+    // 1. ค้นหาผู้ใช้ พร้อมดึงข้อมูลจากตารางที่เกี่ยวข้อง (รวม student ด้วยเผื่อกรณีนักศึกษาล็อกอิน)
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
         admin: true,   
-        teacher: true, 
+        teacher: true,
+        student: true,
       }
     });
 
@@ -33,25 +34,33 @@ export async function POST(request: Request) {
       { expiresIn: '1d' }
     );
 
-    // 4. 🔥 ปรับปรุงการส่งข้อมูลกลับ: รวมให้เป็นก้อน "user" 
-    // เพื่อให้หน้าบ้านเอาไปเก็บลง localStorage('user') ได้ทันที
+    // 4. ประกอบชื่อ-นามสกุลจาก firstName และ lastName ตาม Schema จริง
+    let fullName = 'ผู้ใช้งาน';
+    if (user.role === 'ADMIN' && user.admin) {
+      fullName = `${user.admin.firstName || ''} ${user.admin.lastName || ''}`.trim() || 'ผู้ดูแลระบบ';
+    } else if (user.role === 'TEACHER' && user.teacher) {
+      fullName = `${user.teacher.firstName || ''} ${user.teacher.lastName || ''}`.trim() || 'อาจารย์';
+    } else if (user.role === 'STUDENT' && user.student) {
+      fullName = `${user.student.firstName || ''} ${user.student.lastName || ''}`.trim() || 'นักศึกษา';
+    }
+
     const userData = {
-      id: user.id, // นี่คือ userId (String UUID) ที่เราใช้ใน Profile API
+      id: user.id,
       role: user.role,
-      name: user.role === 'ADMIN' ? user.admin?.name : user.teacher?.name,
-      // ถ้าเป็นอาจารย์ ให้ส่งแผนกไปด้วย เพื่อให้หน้า Dashboard โชว์ได้ทันที
-      department: user.role === 'TEACHER' ? user.teacher?.department : null 
+      name: fullName,
+      department: null, // ไม่มีฟิลด์นี้ในตาราง teacher คืนค่า null เพื่อไม่ให้ frontend พัง
     };
 
     return NextResponse.json({
       success: true,
       token,
-      user: userData, // ✅ ส่งกลับเป็นก้อนตามที่หน้าบ้านรอรับ
-      role: user.role // ส่งแยกไว้อีกตัวเพื่อความสะดวกในการ Redirect
+      user: userData,
+      role: user.role,
     });
 
-  } catch (error: any) {
-    console.error("❌ Login API Error:", error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error("❌ Login API Error:", errorMessage);
     return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
   }
 }

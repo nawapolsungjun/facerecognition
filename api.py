@@ -1,65 +1,117 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from typing import List
-import face_recognition
+import os
 import io
 import json
 import numpy as np
-import sqlite3
 import base64
+import gc
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from PIL import Image, ImageOps, ImageEnhance
 
-app = FastAPI()
+app = FastAPI(title="Face Attendance API")
+
+origins = [
+    "https://face-recog-nu.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-def process_image_to_np(contents):
+def get_db_connection():
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise Exception("ไม่พบตัวแปร DATABASE_URL ใน Environment")
+    conn = psycopg2.connect(db_url, sslmode='require')
+    return conn
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def read_root():
+    return {"status": "ok", "message": "Face Recognition API is running"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
+# [จุดสำคัญที่ 1]: ปรับฟังก์ชันให้รองรับการคำนวณและส่งคืนอัตราส่วนการย่อรูป (Scale)
+def process_image_to_np(contents, return_scale=False):
     img = Image.open(io.BytesIO(contents))
     img = ImageOps.exif_transpose(img)
     img = img.convert('RGB')
     
-    # Preprocessing เพิ่มความคมชัด
+    orig_w, orig_h = img.size
+    img.thumbnail((600, 600), Image.Resampling.LANCZOS)
+    new_w, new_h = img.size
+    
     img = ImageOps.autocontrast(img, cutoff=0.5)
     img = ImageEnhance.Brightness(img).enhance(1.1)
     img = ImageEnhance.Contrast(img).enhance(1.2)
     img = ImageEnhance.Sharpness(img).enhance(1.5)
+    
+    if return_scale:
+        scale_x = new_w / orig_w if orig_w > 0 else 1.0
+        scale_y = new_h / orig_h if orig_h > 0 else 1.0
+        return np.array(img), scale_x, scale_y
+        
     return np.array(img)
 
 @app.post("/api/register-face-multi")
 async def register_face_multi(files: List[UploadFile] = File(...)):
+    import face_recognition
+    all_vectors = []
+    errors = []
     try:
-        all_vectors = []
-        for file in files:
-            contents = await file.read()
-            image_np = process_image_to_np(contents)
-            encodings = face_recognition.face_encodings(image_np)
-            if len(encodings) > 0:
-                all_vectors.append(encodings[0].tolist())
-        
+        for index, file in enumerate(files):
+            try:
+                contents = await file.read()
+                if not contents: continue
+                image_np = process_image_to_np(contents)
+                encodings = face_recognition.face_encodings(image_np)
+                if len(encodings) > 0:
+                    all_vectors.append(encodings[0].tolist())
+                else:
+                    errors.append(f"รูปที่ {index + 1}: ไม่พบใบหน้า")
+                del contents
+                del image_np
+                gc.collect()
+            except Exception as img_err:
+                errors.append(f"รูปที่ {index + 1}: {str(img_err)}")
+
         if len(all_vectors) > 0:
-            return {"success": True, "face_vectors": all_vectors, "vector_count": len(all_vectors)}
-        return {"success": False, "error": "AI หาใบหน้าไม่เจอ"}
+            return {"success": True, "face_vectors": all_vectors, "vector_count": len(all_vectors), "warnings": errors}
+        return JSONResponse(status_code=400, content={"success": False, "error": "ไม่พบใบหน้า", "details": errors})
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/extract-vector")
 async def extract_vector(data: dict):
+    import face_recognition
     try:
         header, encoded = data['image'].split(",", 1)
         image_data = base64.b64decode(encoded)
         image_np = process_image_to_np(image_data)
         encodings = face_recognition.face_encodings(image_np)
+        del image_data
+        del image_np
+        gc.collect()
+
         if len(encodings) > 0:
             return {"success": True, "vector": encodings[0].tolist()}
         return {"success": False, "error": "ไม่พบใบหน้า"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 @app.post("/api/check-attendance-group")
 async def check_attendance(
@@ -67,42 +119,56 @@ async def check_attendance(
     course_id: str = Form(...), 
     boxes: str = Form(...) 
 ):
+    import face_recognition
     conn = None
     try:
         contents = await file.read()
-        image_np = process_image_to_np(contents)
+        
+        # [จุดสำคัญที่ 2]: รับค่า scale ออกมาด้วย
+        image_np, scale_x, scale_y = process_image_to_np(contents, return_scale=True)
         face_boxes_js = json.loads(boxes)
         
         img_h, img_w, _ = image_np.shape
         face_locations = []
 
         for box in face_boxes_js:
-            top = max(0, int(box['y']))
-            right = min(img_w, int(box['x'] + box['width']))
-            bottom = min(img_h, int(box['y'] + box['height']))
-            left = max(0, int(box['x']))
+            # [จุดสำคัญที่ 3]: ย่อขนาดกล่องใบหน้า (Bounding Box) ตามสเกลที่ย่อรูป
+            scaled_x = box['x'] * scale_x
+            scaled_y = box['y'] * scale_y
+            scaled_w = box['width'] * scale_x
+            scaled_h = box['height'] * scale_y
+
+            top = max(0, int(scaled_y))
+            right = min(img_w, int(scaled_x + scaled_w))
+            bottom = min(img_h, int(scaled_y + scaled_h))
+            left = max(0, int(scaled_x))
             face_locations.append((top, right, bottom, left))
 
         if not face_locations:
+            del contents
+            del image_np
+            gc.collect()
             return {"success": True, "matches": []}
 
         current_encodings = face_recognition.face_encodings(image_np, known_face_locations=face_locations)
+        del contents
+        del image_np
+        gc.collect()
         
-        conn = sqlite3.connect('./attendance-web/prisma/dev.db')
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # ปรับ SQL ให้ดึง firstName และ lastName แทน s.name
         query = """
-            SELECT s.id, s.firstName, s.lastName, s.faceVectors 
-            FROM Student s
-            JOIN _CourseToStudent cts ON s.id = cts.B 
-            WHERE cts.A = ? AND s.faceVectors IS NOT NULL
+            SELECT s.id, s."firstName", s."lastName", s."faceVectors" 
+            FROM "Student" s
+            JOIN "_CourseToStudent" cts ON CAST(s.id AS TEXT) = CAST(cts."B" AS TEXT)
+            WHERE CAST(cts."A" AS TEXT) = %s AND s."faceVectors" IS NOT NULL
         """
-        cursor.execute(query, (course_id,))
+        cursor.execute(query, (str(course_id).strip(),))
         raw_students = cursor.fetchall()
+        
+        print(f"DEBUG: Found {len(raw_students)} enrolled students for course {course_id}")
 
-        # จัดเตรียมข้อมูลรายชื่อนักศึกษา
         students = []
         for s in raw_students:
             f_name = s['firstName'] or ""
@@ -117,38 +183,44 @@ async def check_attendance(
         final_matches = [None] * len(current_encodings)
         match_distances = [1.0] * len(current_encodings)
 
-        # 1. หา Match ที่ดีที่สุดของแต่ละกรอบ
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
-            lowest_dist = 0.52
+            lowest_dist = 0.55  # ปรับกลับเป็นค่าความแม่นยำมาตรฐาน
 
             for student in students:
                 try:
-                    vector_raw = student['faceVectors']
-                    data = json.loads(vector_raw)
+                    data = student['faceVectors']
+                    
+                    for _ in range(4):
+                        if isinstance(data, str):
+                            data = json.loads(data)
+                        else:
+                            break
+                        
                     saved_vectors = [np.array(v) for v in data] if isinstance(data, list) else [np.array(data)]
 
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
-                    current_min = np.min(distances)
+                    current_min = float(np.min(distances))
+                    
+                    print(f"DEBUG: Distance score for [{student['name']}] is: {current_min:.4f}")
 
                     if current_min < lowest_dist:
                         lowest_dist = current_min
                         best_student = {"id": student['id'], "name": student['name']}
-                except Exception:
+                except Exception as e:
+                    print(f"Compare Error for {student['name']}: {str(e)}")
                     continue
             
             if best_student:
+                print(f"DEBUG: Matched index {idx} with {best_student['name']} (Score: {lowest_dist:.4f})")
                 final_matches[idx] = best_student
                 match_distances[idx] = lowest_dist
 
-        # 2. De-duplication จัดการกรณีตรวจพบชื่อซ้ำในหลายกรอบ
         used_names = {}
-
         for idx, student in enumerate(final_matches):
             if student:
                 name = student['name']
                 dist = match_distances[idx]
-
                 if name in used_names:
                     if dist < used_names[name]['dist']:
                         final_matches[used_names[name]['index']] = None
@@ -160,14 +232,16 @@ async def check_attendance(
 
         display_names = [m['name'] if m else "Unknown" for m in final_matches]
         
+        cursor.close()
         conn.close()
         return {"success": True, "matches": display_names}
         
     except Exception as e:
         print(f"Python Error: {str(e)}")
         if conn: conn.close()
-        return {"success": False, "error": str(e)}
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=1)

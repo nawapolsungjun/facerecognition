@@ -5,6 +5,9 @@ import * as faceapi from 'face-api.js';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ Render URL อัตโนมัติ)
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+
 interface ScanResult {
   url: string;
   boxes: any[];
@@ -210,24 +213,37 @@ export default function AttendancePage() {
   };
 
   const drawBoxes = (image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
-    canvas.width = image.clientWidth;
-    canvas.height = image.clientHeight;
+    const displayWidth = image.clientWidth;
+    const displayHeight = image.clientHeight;
+    
+    if (displayWidth === 0 || displayHeight === 0) return;
+
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const scaleX = image.clientWidth / image.naturalWidth;
-    const scaleY = image.clientHeight / image.naturalHeight;
+
+    const scaleX = displayWidth / image.naturalWidth;
+    const scaleY = displayHeight / image.naturalHeight;
 
     boxes.forEach((box, index) => {
       const name = matches[index];
       const isMatched = name && name !== "Unknown";
-      const dx = box.x * scaleX, dy = box.y * scaleY, dw = box.width * scaleX, dh = box.height * scaleY;
+      
+      const dx = box.x * scaleX;
+      const dy = box.y * scaleY;
+      const dw = box.width * scaleX;
+      const dh = box.height * scaleY;
+
       ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
       ctx.lineWidth = 3;
       ctx.strokeRect(dx, dy, dw, dh);
+      
       ctx.font = 'bold 12px Arial';
       ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
-      ctx.fillText(name || 'Unknown', dx, dy - 5);
+      ctx.fillText(name || 'Unknown', dx, dy > 15 ? dy - 5 : dy + 15);
     });
   };
 
@@ -268,10 +284,14 @@ export default function AttendancePage() {
           formData.append('boxes', JSON.stringify(currentBoxes));
           formData.append('course_id', courseId);
 
-          const response = await fetch('http://localhost:8000/api/check-attendance-group', {
+          const response = await fetch(`${AI_BASE_URL}/api/check-attendance-group`, {
             method: 'POST',
             body: formData,
           });
+
+          if (!response.ok) {
+             throw new Error('AI Server ประมวลผลรูปภาพไม่สำเร็จ (อาจเกิดจากรูปใหญ่เกินไปหรือเซิร์ฟเวอร์โหลดหนัก)');
+          }
 
           const apiResult = await response.json();
           currentMatches = Array.isArray(apiResult.matches) ? apiResult.matches : [];

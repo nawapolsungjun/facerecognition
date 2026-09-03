@@ -12,11 +12,11 @@ export async function GET(req: Request) {
   try {
     let studentWithCourses = null;
 
-    // 1. ตรวจสอบก่อนว่า studentId ที่ส่งมาเป็นตัวเลข (Int) หรือ String UUID
+    // 1. ตรวจสอบว่า studentId ที่ส่งมาเป็นตัวเลข (Int) หรือ String
     const isNumeric = !isNaN(Number(studentId)) && !isNaN(parseFloat(studentId));
 
     if (isNumeric) {
-      // 🟢 กรณีเป็นตัวเลข (เช่น 7) -> ค้นหาผ่านฟิลด์ id
+      // ค้นหาผ่านฟิลด์ id (Int)
       studentWithCourses = await prisma.student.findUnique({
         where: { id: Number(studentId) },
         include: {
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
         }
       });
     } else {
-      // 🔵 กรณีเป็น String (เช่น cmoah14s...) -> ค้นหาผ่านฟิลด์ userId
+      // ค้นหาผ่านฟิลด์ userId (String)
       studentWithCourses = await prisma.student.findUnique({
         where: { userId: studentId },
         include: {
@@ -33,27 +33,34 @@ export async function GET(req: Request) {
       });
     }
 
-    // 2. ถ้าหาไม่เจอจริงๆ ให้ส่ง 404
+    // 2. กรณีไม่พบข้อมูล
     if (!studentWithCourses) {
       return NextResponse.json({ success: false, error: 'ไม่พบข้อมูลวิชาของนักศึกษาท่านนี้' }, { status: 404 });
     }
 
-    // 3. จัด Format ข้อมูลส่งกลับ (รวมไว้ในนี้เลยเพื่อความอ่านง่าย)
-    const formattedCourses = studentWithCourses.courses.map((course) => ({
-      id: course.id,
-      courseCode: course.courseCode,
-      courseName: course.courseName,
-      teacherName: course.teacher?.name || "ไม่ระบุชื่ออาจารย์"
-    }));
+    // 3. จัด Format ข้อมูลส่งกลับ (ประกอบชื่อจาก firstName และ lastName)
+    const formattedCourses = studentWithCourses.courses.map((course) => {
+      const teacherFullName = course.teacher
+        ? `${course.teacher.firstName || ''} ${course.teacher.lastName || ''}`.trim() || 'ไม่ระบุชื่ออาจารย์'
+        : 'ไม่ระบุชื่ออาจารย์';
+
+      return {
+        id: course.id,
+        courseCode: course.courseCode,
+        courseName: course.courseName,
+        teacherName: teacherFullName,
+      };
+    });
 
     return NextResponse.json({ success: true, data: formattedCourses });
 
-  } catch (error: any) {
-    console.error(" Fetch Student Courses Error:", error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Database Error';
+    console.error("Fetch Student Courses Error:", errorMessage);
     return NextResponse.json({ 
       success: false, 
       error: 'Database Error', 
-      details: error.message 
+      details: errorMessage 
     }, { status: 500 });
   }
 }

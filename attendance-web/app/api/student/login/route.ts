@@ -6,7 +6,7 @@ export async function POST(req: Request) {
   try {
     const { studentCode, password } = await req.json();
 
-    //  ค้นหาจากตาราง User และดึงข้อมูล Student
+    // ค้นหาจากตาราง User และดึงข้อมูล Student
     const user = await prisma.user.findFirst({
       where: {
         OR: [
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
       );
     }
 
-    //  ตรวจสอบ Role
+    // ตรวจสอบ Role
     if (user.role !== 'STUDENT') {
       return NextResponse.json(
         { success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าใช้งานในส่วนของนักศึกษา' }, 
@@ -53,18 +53,21 @@ export async function POST(req: Request) {
       );
     }
 
+    const studentFullName = `${user.student.firstName || ''} ${user.student.lastName || ''}`.trim() || 'นักศึกษา';
+
     return NextResponse.json({
       success: true,
       user: {
         id: user.id,             
-        name: user.student.name,
+        name: studentFullName,
         studentCode: user.student.studentCode,
         role: user.role          
       }
     });
 
-  } catch (error: any) {
-    console.error(" Student Login API Error:", error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error("Student Login API Error:", errorMessage);
     return NextResponse.json(
       { success: false, error: 'เกิดข้อผิดพลาดที่เซิร์ฟเวอร์' }, 
       { status: 500 }

@@ -5,7 +5,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     
-    // 🚀 รับค่า userId (UUID) และ faceVectors (Array หรือ JSON String)
+    // รับค่า userId (UUID) และ faceVectors (Array หรือ JSON String)
     const { userId, faceVectors } = body;
 
     // 1. ตรวจสอบข้อมูลเบื้องต้น
@@ -28,36 +28,36 @@ export async function POST(req: Request) {
       }, { status: 404 });
     }
 
-    // 3. 🚩 อัปเดตข้อมูลใบหน้าลงในฐานข้อมูล
-    // เปลี่ยนจาก .create เป็น .update เพราะ Admin สร้าง User ไว้รอแล้ว
+    // 3. อัปเดตข้อมูลใบหน้าลงในฐานข้อมูล
     const updatedStudent = await prisma.student.update({
       where: { 
-        id: student.id // อัปเดตผ่าน Primary Key (Int) ที่เราหาเจอจาก findFirst
+        id: student.id
       },
       data: {
-        // ✅ บันทึกค่าลงฟิลด์ faceVectors (เติม s ตามที่ DB บอสมี)
-        // ตรวจสอบก่อนว่าถ้าเป็น Array ให้แปลงเป็น String JSON
         faceVectors: typeof faceVectors === 'string' ? faceVectors : JSON.stringify(faceVectors),
       },
     });
 
-    console.log(`✅ [SUCCESS] Face vectors updated for: ${updatedStudent.name}`);
+    const studentFullName = `${updatedStudent.firstName || ''} ${updatedStudent.lastName || ''}`.trim() || 'ไม่ระบุชื่อ';
+
+    console.log(`✅ [SUCCESS] Face vectors updated for: ${studentFullName} (${updatedStudent.studentCode})`);
     
     return NextResponse.json({ 
       success: true, 
-      message: 'ลงทะเบียนใบหน้าเข้าสู่ระบบสำเร็จแล้วครับบอส!',
+      message: 'ลงทะเบียนใบหน้าเข้าสู่ระบบสำเร็จแล้ว!',
       data: { 
-        name: updatedStudent.name,
+        name: studentFullName,
         studentCode: updatedStudent.studentCode 
       }
     });
 
-  } catch (error: any) {
-    console.error("🔴 FACE REGISTRATION API ERROR:", error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
+    console.error("🔴 FACE REGISTRATION API ERROR:", errorMessage);
     
     return NextResponse.json({ 
       success: false, 
-      error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + error.message 
+      error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + errorMessage 
     }, { status: 500 });
   }
 }
