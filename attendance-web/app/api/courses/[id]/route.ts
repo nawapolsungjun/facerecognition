@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * 🔍 [GET] - ดึงข้อมูลรายวิชาและรายชื่อนักศึกษาพร้อมประวัติการเข้าเรียน
  * ใช้สำหรับ: หน้า Student List และการโชว์ Drawer สรุปรายคน
@@ -81,7 +83,7 @@ export async function PATCH(
 }
 
 /**
- * 🗑️ [DELETE] - ลบรายวิชาทิ้งถาวร
+ * 🗑️ [DELETE] - ลบรายวิชาทิ้งถาวร (พร้อมเคลียร์ข้อมูลความสัมพันธ์เพื่อป้องกัน Foreign Key Violation)
  * ใช้สำหรับ: ฟังก์ชัน 2.3 (Danger Zone)
  */
 export async function DELETE(
@@ -91,15 +93,37 @@ export async function DELETE(
   try {
     const { id } = await params;
     
-    // หมายเหตุ: Prisma จะลบข้อมูลที่สัมพันธ์กัน (Cascade) 
-    // หรือต้องลบ Attendance ก่อน ขึ้นอยู่กับการตั้งค่าใน Schema
-    await prisma.course.delete({
-      where: { id }
+    // ใช้ Transaction เพื่อเคลียร์ข้อมูลลูกที่ผูกกับ Course ก่อนลบตัวคอร์ส
+    await prisma.$transaction(async (tx) => {
+      // 1. ลบข้อมูลการเข้าเรียน (Attendance) ทั้งหมดของวิชานี้
+      await tx.attendance.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 2. ลบเซสชันการเช็คชื่อ (AttendanceSession) ทั้งหมดของวิชานี้
+      await tx.attendanceSession.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 3. ตัดความสัมพันธ์ของนักศึกษาที่ลงทะเบียนในวิชานี้ออก
+      await tx.course.update({
+        where: { id: id },
+        data: {
+          students: {
+            set: []
+          }
+        }
+      });
+
+      // 4. ลบรายวิชาอย่างสมบูรณ์
+      await tx.course.delete({
+        where: { id: id }
+      });
     });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("❌ DELETE Course Error:", error.message);
-    return NextResponse.json({ success: false, error: 'ไม่สามารถลบวิชานี้ได้' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'ไม่สามารถลบวิชานี้ได้: ' + error.message }, { status: 500 });
   }
 }

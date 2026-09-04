@@ -121,7 +121,7 @@ export async function POST(req: Request) {
 }
 
 /**
- * [DELETE] - ลบรายวิชาออกจากระบบ
+ * [DELETE] - ลบรายวิชาออกจากระบบอย่างถาวร (พร้อมเคลียร์ข้อมูลความสัมพันธ์เพื่อป้องกัน Foreign Key Violation)
  */
 export async function DELETE(req: Request) {
   try {
@@ -135,8 +135,32 @@ export async function DELETE(req: Request) {
       );
     }
 
-    await prisma.course.delete({
-      where: { id: id }
+    // ใช้ Transaction เพื่อเคลียร์ข้อมูลที่เกี่ยวข้องทั้งหมดก่อนลบคอร์ส
+    await prisma.$transaction(async (tx) => {
+      // 1. ลบข้อมูลการเข้าเรียน (Attendance) ทั้งหมดของวิชานี้
+      await tx.attendance.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 2. ลบเซสชันการเช็คชื่อ (AttendanceSession) ทั้งหมดของวิชานี้
+      await tx.attendanceSession.deleteMany({
+        where: { courseId: id }
+      });
+
+      // 3. ตัดความสัมพันธ์ของนักศึกษาที่ลงทะเบียนในวิชานี้ออก
+      await tx.course.update({
+        where: { id: id },
+        data: {
+          students: {
+            set: []
+          }
+        }
+      });
+
+      // 4. ลบรายวิชา
+      await tx.course.delete({
+        where: { id: id }
+      });
     });
 
     return NextResponse.json({ 
