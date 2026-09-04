@@ -1,3 +1,4 @@
+// attendance-web/app/api/student/profile/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
@@ -97,30 +98,28 @@ export async function PUT(request: Request) {
       lName = parts.slice(1).join(' ') || '';
     }
 
-    // 2. อัปเดตข้อมูลแบบ Transaction
+    // 2. อัปเดตข้อมูลแบบ Transaction (อัปเดตเฉพาะฟิลด์ที่มีในตาราง Student และ User จริง)
     await prisma.$transaction(async (tx) => {
       const studentUpdateData: any = {};
       if (fName) studentUpdateData.firstName = fName;
       if (lName) studentUpdateData.lastName = lName;
 
-      let hashedPassword = '';
-      if (password && password.trim().length > 0) {
-        hashedPassword = await bcrypt.hash(password, 10);
-        studentUpdateData.password = hashedPassword;
-      }
-
-      // อัปเดตข้อมูลในตาราง Student
+      // อัปเดตข้อมูลในตาราง Student ก่อน
       await tx.student.update({
         where: { id: student.id },
         data: studentUpdateData
       });
 
-      // อัปเดตรหัสผ่านในตาราง User (ถ้ามีการเปลี่ยนรหัสผ่าน)
-      if (student.userId && hashedPassword) {
-        await tx.user.update({
-          where: { id: student.userId }, 
-          data: { password: hashedPassword }
-        });
+      // หากมีการส่งรหัสผ่านใหม่มา ให้แฮชและอัปเดตที่ตาราง User (เพราะตาราง Student ไม่มีฟิลด์ password)
+      if (password && password.trim().length > 0) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        if (student.userId) {
+          await tx.user.update({
+            where: { id: student.userId }, 
+            data: { password: hashedPassword }
+          });
+        }
       }
     });
 

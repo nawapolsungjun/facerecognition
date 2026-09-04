@@ -6,8 +6,8 @@ import Webcam from 'react-webcam';
 import Link from 'next/link';
 import * as faceapi from 'face-api.js';
 
-// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ Render URL อัตโนมัติ)
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ค่าเริ่มต้น)
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
 
 // ลำดับมุมและท่าทางที่ต้องการให้ตรวจจับ
 const SCAN_STEPS = [
@@ -187,7 +187,6 @@ export default function ReEnrollPage() {
 
       setStatus('กำลังอัปเดตข้อมูลใบหน้าลงฐานข้อมูล...');
 
-      // แปลงเป็น String อย่างชัดเจน เพื่อป้องกัน TypeError ใน Prisma
       const targetStudentId = String(currentUser.id || currentUser.userId || '').trim();
       const targetUserId = String(currentUser.userId || currentUser.id || '').trim();
 
@@ -414,7 +413,7 @@ export default function ReEnrollPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* 1. Header ด้านบนตาม Style Canva */}
+      {/* 1. Header ด้านบนตาม Style สากล */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="absolute top-6 left-6">
           <Link
@@ -501,7 +500,7 @@ export default function ReEnrollPage() {
               type="button"
               onClick={handleOpenConfirm}
               disabled={isLoading || (!files || files.length < 3)}
-              className="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-3.5 rounded-xl font-bold text-sm shadow-sm active:scale-[0.99] disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer transition-all mt-4"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-xl font-bold text-sm shadow-sm active:scale-[0.99] disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer transition-all mt-4"
             >
               {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการอัปเดตใบหน้า'}
             </button>
@@ -558,7 +557,7 @@ export default function ReEnrollPage() {
                   type="button"
                   onClick={handleStartScan}
                   disabled={!isModelsLoaded}
-                  className="bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer disabled:bg-slate-300"
+                  className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer disabled:bg-slate-300"
                 >
                   {isModelsLoaded ? 'เริ่มสแกนใบหน้า (ตรวจจับอัตโนมัติ)' : 'กำลังเตรียมระบบ AI...'}
                 </button>
@@ -648,7 +647,7 @@ export default function ReEnrollPage() {
               <button
                 type="button"
                 onClick={() => handleFinalSave([])}
-                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
               >
                 ยืนยันบันทึก
               </button>
@@ -670,7 +669,7 @@ export default function ReEnrollPage() {
               type="button"
               onClick={handleCloseAlertModal}
               className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
-                alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
+                alertModal.isSuccess ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
               }`}
             >
               ตกลง

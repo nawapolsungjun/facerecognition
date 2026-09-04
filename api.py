@@ -8,14 +8,13 @@ import json
 import numpy as np
 import base64
 import gc
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import sqlite3
 from PIL import Image, ImageOps, ImageEnhance
 
 app = FastAPI(title="Face Attendance API")
 
+# กำหนดสิทธิ์ CORS
 origins = [
-    "https://face-recog-nu.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -23,7 +22,6 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,21 +29,37 @@ app.add_middleware(
 )
 
 def get_db_connection():
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise Exception("ไม่พบตัวแปร DATABASE_URL ใน Environment")
-    conn = psycopg2.connect(db_url, sslmode='require')
+    # ค้นหาตำแหน่งไฟล์ dev.db ภายในโฟลเดอร์ attendance-web ที่เป็นโปรเจกต์ Next.js จริง
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    possible_paths = [
+        os.path.join(base_dir, "..", "attendance-web", "prisma", "dev.db"),
+        os.path.join(base_dir, "attendance-web", "prisma", "dev.db"),
+        os.path.abspath(os.path.join(base_dir, "..", "..", "attendance-web", "prisma", "dev.db")),
+        os.path.join(base_dir, "prisma", "dev.db"),
+        os.path.join(base_dir, "dev.db")
+    ]
+    
+    db_path = possible_paths[0]
+    for path in possible_paths:
+        normalized_path = os.path.normpath(path)
+        if os.path.exists(normalized_path) and os.path.getsize(normalized_path) > 0:
+            db_path = normalized_path
+            break
+            
+    print(f"-> DEBUG: Python connected to SQLite database at: {db_path}")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
     return conn
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
-    return {"status": "ok", "message": "Face Recognition API is running"}
+    return {"status": "ok", "message": "Face Recognition API is running (SQLite Mode)"}
 
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
 
-# [จุดสำคัญที่ 1]: ปรับฟังก์ชันให้รองรับการคำนวณและส่งคืนอัตราส่วนการย่อรูป (Scale)
 def process_image_to_np(contents, return_scale=False):
     img = Image.open(io.BytesIO(contents))
     img = ImageOps.exif_transpose(img)
@@ -124,7 +138,6 @@ async def check_attendance(
     try:
         contents = await file.read()
         
-        # [จุดสำคัญที่ 2]: รับค่า scale ออกมาด้วย
         image_np, scale_x, scale_y = process_image_to_np(contents, return_scale=True)
         face_boxes_js = json.loads(boxes)
         
@@ -132,7 +145,6 @@ async def check_attendance(
         face_locations = []
 
         for box in face_boxes_js:
-            # [จุดสำคัญที่ 3]: ย่อขนาดกล่องใบหน้า (Bounding Box) ตามสเกลที่ย่อรูป
             scaled_x = box['x'] * scale_x
             scaled_y = box['y'] * scale_y
             scaled_w = box['width'] * scale_x
@@ -156,19 +168,17 @@ async def check_attendance(
         gc.collect()
         
         conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
         
         query = """
-            SELECT s.id, s."firstName", s."lastName", s."faceVectors" 
-            FROM "Student" s
-            JOIN "_CourseToStudent" cts ON CAST(s.id AS TEXT) = CAST(cts."B" AS TEXT)
-            WHERE CAST(cts."A" AS TEXT) = %s AND s."faceVectors" IS NOT NULL
+            SELECT s.id, s.firstName, s.lastName, s.faceVectors 
+            FROM Student s
+            JOIN _CourseToStudent cts ON s.id = cts.B
+            WHERE cts.A = ? AND s.faceVectors IS NOT NULL
         """
         cursor.execute(query, (str(course_id).strip(),))
         raw_students = cursor.fetchall()
         
-        print(f"DEBUG: Found {len(raw_students)} enrolled students for course {course_id}")
-
         students = []
         for s in raw_students:
             f_name = s['firstName'] or ""
@@ -185,12 +195,11 @@ async def check_attendance(
 
         for idx, current_vec in enumerate(current_encodings):
             best_student = None
-            lowest_dist = 0.55  # ปรับกลับเป็นค่าความแม่นยำมาตรฐาน
+            lowest_dist = 0.55
 
             for student in students:
                 try:
                     data = student['faceVectors']
-                    
                     for _ in range(4):
                         if isinstance(data, str):
                             data = json.loads(data)
@@ -198,11 +207,8 @@ async def check_attendance(
                             break
                         
                     saved_vectors = [np.array(v) for v in data] if isinstance(data, list) else [np.array(data)]
-
                     distances = face_recognition.face_distance(saved_vectors, current_vec)
                     current_min = float(np.min(distances))
-                    
-                    print(f"DEBUG: Distance score for [{student['name']}] is: {current_min:.4f}")
 
                     if current_min < lowest_dist:
                         lowest_dist = current_min
@@ -212,7 +218,6 @@ async def check_attendance(
                     continue
             
             if best_student:
-                print(f"DEBUG: Matched index {idx} with {best_student['name']} (Score: {lowest_dist:.4f})")
                 final_matches[idx] = best_student
                 match_distances[idx] = lowest_dist
 

@@ -4,6 +4,29 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+function parseSessionImages(rawImageUrl: string | null | undefined): string[] {
+  if (!rawImageUrl || typeof rawImageUrl !== 'string') return [];
+  const trimmed = rawImageUrl.trim();
+  if (!trimmed || trimmed.includes('[Large Image Base64 Omitted')) return [];
+
+  if (trimmed.startsWith('data:image/')) {
+    if (trimmed.includes('|||')) {
+      return trimmed.split('|||').filter(Boolean);
+    }
+    return [trimmed];
+  }
+
+  if (trimmed.includes('|||')) {
+    return trimmed.split('|||').map((s) => s.trim()).filter(Boolean);
+  }
+
+  if (trimmed.includes(',')) {
+    return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  return [trimmed];
+}
+
 export default function AttendanceHistoryPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -16,9 +39,11 @@ export default function AttendanceHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
 
+  // State สำหรับเก็บ URL รูปภาพที่ต้องการซูมดูแบบเต็มหน้าจอ
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
 
-  // ดึงข้อมูลชื่อวิชา
   const fetchCourseInfo = useCallback(async () => {
     const token = getAuthToken();
     try {
@@ -37,7 +62,6 @@ export default function AttendanceHistoryPage() {
     }
   }, [courseId]);
 
-  // ดึงประวัติการเช็คชื่อตามรอบ พร้อมรองรับการกรองตามวันที่และช่วงเวลา
   const fetchHistory = useCallback(async () => {
     setLoading(true);
     const token = getAuthToken();
@@ -68,7 +92,6 @@ export default function AttendanceHistoryPage() {
       if (json.success && Array.isArray(json.data)) {
         let list = json.data;
 
-        // กรองช่วงเวลาอย่างแม่นยำ ป้องกันคาบชดเชยหรือช่วงเวลาอื่นปะปน
         if (filterTimeSlotParam) {
           const targetSlot = filterTimeSlotParam.trim();
           list = list.filter((session: any) => {
@@ -102,7 +125,7 @@ export default function AttendanceHistoryPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
-      {/* 1. Header */}
+      {/* Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
         <div className="absolute top-6 left-6">
           <Link
@@ -120,7 +143,7 @@ export default function AttendanceHistoryPage() {
         </p>
       </header>
 
-      {/* 2. Navigation Tabs Bar */}
+      {/* Navigation Tabs Bar */}
       <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
           <Link
@@ -165,10 +188,8 @@ export default function AttendanceHistoryPage() {
         </div>
       </nav>
 
-      {/* 3. Main Content */}
+      {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-
-        {/* การ์ดสรุปข้อมูล */}
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
@@ -205,9 +226,7 @@ export default function AttendanceHistoryPage() {
         ) : sessions.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {sessions.map((session, index) => {
-              const imageList = session.imageUrl
-                ? session.imageUrl.split(',').filter((url: string) => url.trim() !== '')
-                : [];
+              const imageList = parseSessionImages(session.imageUrl);
               const roundNum = session.roundNumber || session.round || (sessions.length - index);
               const dateFormatted = session.createdAt
                 ? new Date(session.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
@@ -232,12 +251,25 @@ export default function AttendanceHistoryPage() {
                     </div>
 
                     {imageList.length > 0 ? (
-                      <div className="relative w-full h-44 bg-slate-100 rounded-xl overflow-hidden mb-3 border border-slate-100">
+                      <div
+                        onClick={() => setPreviewImageUrl(imageList[0])}
+                        className="relative w-full h-44 bg-slate-100 rounded-xl overflow-hidden mb-3 border border-slate-100 cursor-zoom-in group"
+                        title="คลิกเพื่อขยายรูปภาพขนาดใหญ่"
+                      >
                         <img
                           src={imageList[0]}
                           alt={`รอบที่ ${roundNum}`}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         />
+                        {/* Overlay บอกว่าคลิกขยายได้ */}
+                        <div className="absolute inset-0 bg-slate-900/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                          <span className="bg-slate-900/80 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                            </svg>
+                            คลิกเพื่อดูภาพขยาย
+                          </span>
+                        </div>
                         {imageList.length > 1 && (
                           <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
                             +{imageList.length - 1} รูปเพิ่ม
@@ -278,7 +310,7 @@ export default function AttendanceHistoryPage() {
         )}
       </main>
 
-      {/* 4. Footer */}
+      {/* Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
@@ -288,7 +320,7 @@ export default function AttendanceHistoryPage() {
 
       {/* Modal แสดงรายละเอียดการเช็คชื่อ */}
       {selectedSession && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
               <div>
@@ -311,24 +343,31 @@ export default function AttendanceHistoryPage() {
             {selectedSession.imageUrl && (
               <div className="mb-6">
                 <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
-                  รูปภาพประกอบการเช็คชื่อ
+                  รูปภาพประกอบการเช็คชื่อ (คลิกเพื่อขยาย)
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedSession.imageUrl
-                    .split(',')
-                    .filter((url: string) => url.trim() !== '')
-                    .map((imgUrl: string, idx: number) => (
-                      <div
-                        key={idx}
-                        className="rounded-xl overflow-hidden border border-slate-200/60 bg-slate-900 h-44"
-                      >
-                        <img
-                          src={imgUrl.trim()}
-                          alt={`รูปถ่ายการเช็คชื่อ #${idx + 1}`}
-                          className="w-full h-full object-contain"
-                        />
+                  {parseSessionImages(selectedSession.imageUrl).map((imgUrl: string, idx: number) => (
+                    <div
+                      key={idx}
+                      onClick={() => setPreviewImageUrl(imgUrl.trim())}
+                      className="relative rounded-xl overflow-hidden border border-slate-200/60 bg-slate-900 min-h-[180px] flex items-center justify-center cursor-zoom-in group"
+                      title="คลิกเพื่อดูภาพขยายขนาดใหญ่"
+                    >
+                      <img
+                        src={imgUrl.trim()}
+                        alt={`รูปถ่ายการเช็คชื่อ #${idx + 1}`}
+                        className="max-h-72 w-auto max-w-full object-contain block rounded-lg group-hover:opacity-90 transition-opacity"
+                      />
+                      <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                        <span className="bg-slate-900/80 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                          </svg>
+                          คลิกขยาย
+                        </span>
                       </div>
-                    ))}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -380,6 +419,44 @@ export default function AttendanceHistoryPage() {
                   ไม่มีรายการเช็คชื่อรายบุคคลในรอบนี้
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal: ขยายรูปภาพผลการสแกนขนาดเต็มจอ */}
+      {previewImageUrl && (
+        <div
+          className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div
+            className="relative max-w-5xl w-full max-h-[94vh] bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col p-4 md:p-6 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center pb-3 mb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h3 className="text-sm md:text-base font-black text-slate-800">
+                  รูปภาพผลการสแกนใบหน้า (ขนาดขยาย)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="text-slate-400 hover:text-slate-700 text-2xl font-bold p-1 cursor-pointer"
+                title="ปิด"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="relative overflow-auto max-h-[82vh] flex items-center justify-center rounded-2xl bg-slate-900 border border-slate-200 p-2">
+              <img
+                src={previewImageUrl}
+                alt="Enlarged Preview"
+                className="max-h-[78vh] w-auto max-w-full object-contain block rounded-lg shadow-lg"
+              />
             </div>
           </div>
         </div>

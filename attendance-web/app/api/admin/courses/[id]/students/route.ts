@@ -1,7 +1,10 @@
+// attendance-web/app/api/admin/courses/[id]/students/route.ts
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
-// 1. [GET] ดึงข้อมูลรายวิชา, รายชื่อนักศึกษาในวิชา และรายชื่อนักศึกษาทั้งหมด
+export const dynamic = 'force-dynamic';
+
+// 1. [GET] ดึงข้อมูลรายวิชา, รายชื่อนักศึกษาในวิชาพร้อมประวัติการเช็คชื่อ และรายชื่อนักศึกษาทั้งหมด
 export async function GET(
   req: Request, 
   { params }: { params: Promise<{ id: string }> | { id: string } }
@@ -14,13 +17,22 @@ export async function GET(
       return NextResponse.json({ success: false, error: "ไม่พบ Course ID" }, { status: 400 });
     }
 
-    // ดึงข้อมูล Course พร้อม Teacher และ Students (ไม่ระบุ select เพื่อป้องกัน Error ฟิลด์ไม่ตรงกับ Schema)
+    // ดึงข้อมูล Course พร้อม Teacher, Students และพ่วง Attendance เพื่อให้ข้อมูลประวัติครบถ้วน
     const courseInfo = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
         teacher: true,
         students: {
-          orderBy: { studentCode: 'asc' }
+          orderBy: { studentCode: 'asc' },
+          include: {
+            attendances: {
+              where: { courseId: courseId },
+              orderBy: [
+                { updatedAt: 'desc' },
+                { createdAt: 'desc' }
+              ]
+            }
+          }
         }
       }
     });

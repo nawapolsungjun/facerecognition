@@ -34,6 +34,7 @@ export default function AdminSingleCourseReportPage() {
   });
 
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('');
+  const [selectedSessionType, setSelectedSessionType] = useState<string>('');
 
   const [editingStudent, setEditingStudent] = useState<{
     id: number;
@@ -79,7 +80,7 @@ export default function AdminSingleCourseReportPage() {
 
   const formatDisplayRemark = (str: string) => {
     if (!str) return '';
-    const match = str.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)เมื่อ[^)]*?\)/i);
+    const match = str.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
     const baseRemark = cleanRemarkString(str);
     if (match) {
       return baseRemark ? `${baseRemark} ${match[0]}` : match[0];
@@ -142,16 +143,17 @@ export default function AdminSingleCourseReportPage() {
     }
   }, [courseId]);
 
-  const fetchDailyReport = useCallback(async (date: string, timeSlot?: string) => {
+  const fetchDailyReport = useCallback(async (date: string, timeSlot?: string, sessionType?: string) => {
     setLoading(true);
     const token = getAuthToken();
     try {
-      const querySlot = timeSlot ? `&timeSlot=${timeSlot}` : '';
+      const querySlot = timeSlot ? `&timeSlot=${encodeURIComponent(timeSlot)}` : '';
+      const queryType = sessionType ? `&sessionType=${encodeURIComponent(sessionType)}` : '';
       const [resDaily, resHistory] = await Promise.all([
-        fetch(`/api/report/${courseId}?date=${date}${querySlot}`, {
+        fetch(`/api/report/${courseId}?date=${date}${querySlot}${queryType}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`/api/attendance/history/${courseId}?date=${date}${querySlot}`, {
+        fetch(`/api/attendance/history/${courseId}?date=${date}${querySlot}${queryType}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }).catch(() => null)
       ]);
@@ -203,13 +205,12 @@ export default function AdminSingleCourseReportPage() {
   useEffect(() => {
     if (courseId) {
       fetchCourseDetailsAndHistory();
+      fetchWeeksSummary();
       if (reportMode === 'daily') {
-        fetchDailyReport(selectedDate, selectedTimeSlot);
-      } else {
-        fetchWeeksSummary();
+        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
       }
     }
-  }, [courseId, selectedDate, selectedTimeSlot, reportMode, fetchCourseDetailsAndHistory, fetchDailyReport, fetchWeeksSummary]);
+  }, [courseId, selectedDate, selectedTimeSlot, selectedSessionType, reportMode, fetchCourseDetailsAndHistory, fetchDailyReport, fetchWeeksSummary]);
 
   const handleOpenStatusModal = (item: any, timeString?: string) => {
     const displayName = `${item.firstName || ''} ${item.lastName || ''}`.trim() || item.name || 'ไม่ระบุชื่อ';
@@ -261,7 +262,7 @@ export default function AdminSingleCourseReportPage() {
 
       if (res.ok) {
         setEditingStudent(null);
-        fetchDailyReport(selectedDate, selectedTimeSlot);
+        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
         fetchWeeksSummary();
         fetchCourseDetailsAndHistory();
         setAlertModal({
@@ -318,7 +319,7 @@ export default function AdminSingleCourseReportPage() {
       });
 
       if (res.ok) {
-        fetchDailyReport(selectedDate, selectedTimeSlot);
+        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
         fetchWeeksSummary();
         fetchCourseDetailsAndHistory();
         setAlertModal({
@@ -484,6 +485,8 @@ export default function AdminSingleCourseReportPage() {
     if (week.rawDate) {
       setSelectedDate(week.rawDate);
       setSelectedTimeSlot(week.timeStr || '');
+      setSelectedSessionType(week.sessionType || 'REGULAR');
+      fetchDailyReport(week.rawDate, week.timeStr, week.sessionType);
     }
     setReportMode('daily');
   };
@@ -506,48 +509,109 @@ export default function AdminSingleCourseReportPage() {
     const baseStudents = courseInfo?.students?.length > 0 ? courseInfo.students : dailyReport.data;
     if (!baseStudents || baseStudents.length === 0) return [];
 
+    const uniqueSlots = new Map<string, any>();
+
+    historySessions.forEach((sess: any) => {
+      const d = new Date(sess.date || sess.createdAt || 0);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${day}`;
+
+      let timeSlot = sess.timeSlot || '';
+      const fullText = `${sess.note || ''} ${sess.timeSlot || ''}`;
+      const timeMatch = fullText.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+
+      if (timeMatch) {
+        timeSlot = `${timeMatch[1]}-${timeMatch[2]}`.replace(/\s+/g, '');
+      } else {
+        const hr = d.getHours();
+        timeSlot = hr < 12 ? '09:00-12:00' : '13:00-16:00';
+      }
+
+      const isComp = sess.sessionType === 'COMPENSATION' || fullText.includes('สอนชดเชย');
+      const sessionType = isComp ? 'COMPENSATION' : 'REGULAR';
+      const slotKey = `${dateStr}_${timeSlot}_${sessionType}`;
+
+      if (!uniqueSlots.has(slotKey)) {
+        uniqueSlots.set(slotKey, {
+          dateStr,
+          timeSlot,
+          sessionType,
+          sessionIds: sess.id ? [String(sess.id)] : [],
+          rawTimestamp: d.getTime(),
+        });
+      } else {
+        const existing = uniqueSlots.get(slotKey);
+        if (sess.id && !existing.sessionIds.includes(String(sess.id))) {
+          existing.sessionIds.push(String(sess.id));
+        }
+      }
+    });
+
+    const standardWeeks = Array.from(uniqueSlots.values()).sort(
+      (a, b) => a.rawTimestamp - b.rawTimestamp,
+    );
+
     return baseStudents.map((student: any) => {
       const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
       const studentId = String(student.id || '');
       const studentCode = String(student.studentCode || '').trim();
       const recordsMap: { [weekNumber: number]: string } = {};
 
-      if (historySessions.length > 0) {
-        historySessions.forEach((session: any, index: number) => {
-          const weekNum = index + 1;
-          const sessionRecords = session.attendances || session.records || [];
+      standardWeeks.forEach((weekSession: any, wIdx: number) => {
+        const weekNum = wIdx + 1;
+        const matchedStatuses: string[] = [];
 
-          const matched = sessionRecords.find((r: any) => {
-            const rId = String(r.studentId || r.student?.id || r.id || '');
-            const rCode = String(r.studentCode || r.student?.studentCode || '').trim();
-            const rName = `${r.firstName || r.student?.firstName || ''} ${r.lastName || r.student?.lastName || ''}`.trim() || r.name || r.student?.name;
+        historySessions.forEach((session: any) => {
+          const d = new Date(session.date || session.createdAt || 0);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const sessionDateStr = `${y}-${m}-${day}`;
 
-            return (
-              (studentId && rId && rId === studentId) ||
-              (studentCode && rCode && rCode === studentCode) ||
-              (studentName && rName && rName === studentName)
-            );
-          });
+          const isSessionMatch = session.id && weekSession.sessionIds.includes(String(session.id));
+          const isDateMatch = sessionDateStr === weekSession.dateStr;
 
-          if (matched) {
-            recordsMap[weekNum] = matched.status;
-          } else {
-            recordsMap[weekNum] = 'ขาดเรียน';
+          if (isSessionMatch || isDateMatch) {
+            const records = session.attendances || session.records || [];
+            const r = records.find((item: any) => {
+              const rId = String(item.studentId || item.student?.id || item.id || '');
+              const rCode = String(item.studentCode || item.student?.studentCode || '').trim();
+              const rName = `${item.firstName || item.student?.firstName || ''} ${item.lastName || item.student?.lastName || ''}`.trim() || item.name || item.student?.name;
+
+              return (studentId && rId && rId === studentId) ||
+                     (studentCode && rCode && rCode === studentCode) ||
+                     (studentName && rName && rName === studentName);
+            });
+
+            if (r?.status) {
+              matchedStatuses.push(r.status);
+            }
           }
         });
-      } else {
-        if (student.status) {
-          recordsMap[1] = student.status;
+
+        if (matchedStatuses.length > 0) {
+          const priority: Record<string, number> = {
+            มาสาย: 5,
+            มาเรียน: 4,
+            ลา: 3,
+            ขาดเรียน: 1,
+          };
+          matchedStatuses.sort((a, b) => (priority[b] || 0) - (priority[a] || 0));
+          recordsMap[weekNum] = matchedStatuses[0];
+        } else {
+          recordsMap[weekNum] = 'ขาดเรียน';
         }
-      }
+      });
 
       const recordedStatuses = Object.values(recordsMap);
       const presentCount = recordedStatuses.filter(v => v === 'มาเรียน').length;
       const lateCount = recordedStatuses.filter(v => v === 'มาสาย').length;
       const leaveCount = recordedStatuses.filter(v => v === 'ลา').length;
       const absentCount = recordedStatuses.filter(v => v === 'ขาดเรียน').length;
-      const totalSessions = recordedStatuses.length;
-      const percent = totalSessions > 0 ? Math.round(((presentCount + lateCount) / totalSessions) * 100) : 0;
+      const totalRecordedWeeks = standardWeeks.length;
+      const percent = totalRecordedWeeks > 0 ? Math.round(((presentCount + lateCount) / totalRecordedWeeks) * 100) : 0;
 
       return {
         id: student.id,
@@ -615,7 +679,6 @@ export default function AdminSingleCourseReportPage() {
           </div>
         </nav>
 
-        {/* 🌟 ปรับขนาด Main Container เป็น max-w-6xl เท่ากับหน้า Teacher */}
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
           <div className="flex justify-center mb-6">
             <div className="inline-flex bg-slate-200/80 p-1 rounded-xl shadow-inner border border-slate-300/60">
@@ -667,6 +730,7 @@ export default function AdminSingleCourseReportPage() {
                       onChange={(e) => {
                         setSelectedDate(e.target.value);
                         setSelectedTimeSlot('');
+                        setSelectedSessionType('');
                       }}
                       className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
                     />
@@ -697,7 +761,6 @@ export default function AdminSingleCourseReportPage() {
                   </div>
                 </div>
 
-                {/* การ์ดสรุปตัวเลข 5 ช่อง */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-6 border-t border-slate-100">
                   {[
                     { label: 'ทั้งหมด', count: dailyReport.summary?.total || 0, color: 'text-slate-600', bg: 'bg-slate-50' },
@@ -714,7 +777,7 @@ export default function AdminSingleCourseReportPage() {
                 </div>
               </div>
 
-              {/* ตารางรายชื่อนักศึกษาประจำวัน */}
+              {/* ตารางรายชื่อประจำวัน */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 flex gap-2 overflow-x-auto">
                   {['ทั้งหมด', 'มาเรียน', 'มาสาย', 'ลา', 'ขาดเรียน'].map((f) => (

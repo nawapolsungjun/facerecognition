@@ -37,6 +37,7 @@ export async function GET(
       const endOfDay = new Date(targetDate);
       endOfDay.setHours(23, 59, 59, 999);
 
+      // ใช้เฉพาะ createdAt เนื่องจากตาราง AttendanceSession ไม่มีคอลัมน์ date
       whereClause.createdAt = {
         gte: startOfDay,
         lte: endOfDay,
@@ -49,11 +50,17 @@ export async function GET(
       orderBy: { createdAt: 'asc' }, // เรียงรอบ 1 -> 2 -> 3 ตามลำดับเวลา
       include: {
         attendances: {
+          orderBy: [
+            { updatedAt: 'desc' },
+            { createdAt: 'desc' },
+            { id: 'desc' },
+          ],
           select: {
             id: true,
             status: true,
             remark: true,
             createdAt: true,
+            updatedAt: true,
             date: true,
             student: {
               select: {
@@ -71,12 +78,24 @@ export async function GET(
     // 4. แมปข้อมูล Session พร้อมสกัด sessionType และ timeSlot
     let formattedSessions = sessions.map((session: any) => {
       const sessionNote = session.note || '';
-      const isCompensation = sessionNote.includes('[สอนชดเชย]');
-      const sessionType = isCompensation ? 'COMPENSATION' : 'REGULAR';
       
-      // สกัดช่วงเวลา timeSlot จาก note (เช่น "09:00-12:00" หรือ "13:00 - 16:00")
-      const timeSlotMatch = sessionNote.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/);
-      const timeSlot = timeSlotMatch ? timeSlotMatch[0].replace(/\s+/g, '') : '';
+      const isCompensation =
+        session.sessionType === 'COMPENSATION' ||
+        sessionNote.includes('[สอนชดเชย]') ||
+        sessionNote.includes('สอนชดเชย');
+      const sessionType = isCompensation ? 'COMPENSATION' : 'REGULAR';
+
+      let timeSlot = session.timeSlot || '';
+      const fullText = `${sessionNote} ${session.timeSlot || ''}`;
+      const timeSlotMatch = fullText.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+
+      if (timeSlotMatch) {
+        timeSlot = `${timeSlotMatch[1]}-${timeSlotMatch[2]}`.replace(/\s+/g, '');
+      } else if (!timeSlot) {
+        const d = new Date(session.createdAt);
+        const hr = d.getHours();
+        timeSlot = hr < 12 ? '09:00-12:00' : (hr < 17 ? '13:00-16:00' : '17:00-20:00');
+      }
 
       const records = session.attendances.map((att: any) => {
         const fullName = att.student
@@ -91,6 +110,7 @@ export async function GET(
           status: att.status,
           remark: att.remark,
           time: att.date || att.createdAt,
+          updatedAt: att.updatedAt,
         };
       });
 
@@ -100,6 +120,7 @@ export async function GET(
         imageUrl: session.imageUrl,
         note: session.note,
         createdAt: session.createdAt,
+        date: session.createdAt,
         sessionType,
         timeSlot,
         records,
@@ -115,11 +136,19 @@ export async function GET(
       };
     });
 
-    // 5. กรองตาม timeSlot หรือ sessionType หากมีการระบุเจาะจงมาใน query
+    // 5. กรองตาม timeSlot หรือ sessionType หากระบุมาใน query
     if (timeSlotParam || sessionTypeParam) {
+      const cleanTargetSlot = timeSlotParam ? timeSlotParam.replace(/\s+/g, '') : null;
+
       formattedSessions = formattedSessions.filter((s: any) => {
-        const matchSlot = timeSlotParam ? (!s.timeSlot || s.timeSlot === timeSlotParam.replace(/\s+/g, '')) : true;
-        const matchType = sessionTypeParam ? s.sessionType === sessionTypeParam : true;
+        const matchSlot = cleanTargetSlot
+          ? (s.timeSlot === cleanTargetSlot || s.note?.replace(/\s+/g, '').includes(cleanTargetSlot))
+          : true;
+
+        const matchType = sessionTypeParam
+          ? s.sessionType === sessionTypeParam
+          : true;
+
         return matchSlot && matchType;
       });
     }

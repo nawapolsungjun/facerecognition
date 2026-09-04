@@ -39,12 +39,14 @@ interface CourseAttendanceSheetPrintFormProps {
   };
   students: StudentAttendanceData[];
   totalWeeks?: number;
+  actualRecordedWeeks?: number; // จำนวนสัปดาห์ที่สอนจริง (เช่น 4 สัปดาห์)
 }
 
 export default function CourseAttendanceSheetPrintForm({
   courseInfo,
   students = [],
   totalWeeks = 15,
+  actualRecordedWeeks,
 }: CourseAttendanceSheetPrintFormProps) {
   const printTimestamp =
     new Date().toLocaleDateString('th-TH', {
@@ -66,7 +68,6 @@ export default function CourseAttendanceSheetPrintForm({
     return status;
   };
 
-  // 🌟 เพิ่มฟังก์ชันเรียงลำดับนักศึกษาตามรหัสประจำตัว (น้อยไปมาก)
   const sortedStudents = useMemo(() => {
     return [...students].sort((a, b) => {
       const codeA = String(a.studentCode || '').trim();
@@ -79,10 +80,7 @@ export default function CourseAttendanceSheetPrintForm({
     <>
       <div className="print-container hidden print:block font-sarabun text-black bg-white w-full text-[12px] leading-tight">
         <table className="print-main-table w-full text-[11px] mb-4">
-          
-          {/* thead ถูกส่งไปขึ้นซ้ำที่ส่วนหัวของทุกหน้า (รวมหน้าที่ 2, 3...) */}
           <thead className="print-thead">
-            
             {/* แถวที่ 1: ส่วนหัวหนังสือทางการ มทร.กรุงเทพ */}
             <tr className="no-border-row">
               <th colSpan={totalWeeks + 8} className="p-0 font-normal text-left no-border-cell">
@@ -94,20 +92,11 @@ export default function CourseAttendanceSheetPrintForm({
                     <div className="text-[12px] font-semibold text-slate-800 leading-normal">
                       {courseInfo.faculty || 'คณะบริหารธุรกิจ'} • {courseInfo.department || 'สาขาวิชานวัตกรรมระบบสารสนเทศ'}
                     </div>
-                    <div className="text-[11px] text-slate-700 leading-normal">
-                      {courseInfo.degreeLevel || 'ปริญญาตรี 4 ปี ปกติ'}
-                    </div>
                   </div>
 
                   <div className="text-right">
                     <div className="text-[15px] font-bold text-black leading-normal">
                       รายชื่อนักศึกษาที่ลงทะเบียน
-                    </div>
-                    <div className="text-[12px] text-slate-800 font-medium leading-normal">
-                      มทร. กรุงเทพ
-                    </div>
-                    <div className="text-[12px] font-bold text-black leading-normal">
-                      ปีการศึกษา {courseInfo.semester || '1'}/{courseInfo.academicYear || '2569'}
                     </div>
                   </div>
                 </div>
@@ -147,7 +136,7 @@ export default function CourseAttendanceSheetPrintForm({
               </th>
             </tr>
 
-            {/* แถวที่ 3 & 4: หัวคอลัมน์ตารางเช็คชื่อ (เริ่มมีเส้นตารางจริงตรงนี้) */}
+            {/* แถวที่ 3 & 4: หัวคอลัมน์ตารางเช็คชื่อ */}
             <tr className="bg-slate-100 text-center font-bold">
               <th rowSpan={2} className="table-grid-cell w-8">ที่</th>
               <th rowSpan={2} className="table-grid-cell w-28">รหัสประจำตัว</th>
@@ -170,7 +159,6 @@ export default function CourseAttendanceSheetPrintForm({
             </tr>
           </thead>
 
-          {/* ข้อมูลรายชื่อนักศึกษา (ใช้ตัวแปร sortedStudents ที่เรียงลำดับแล้ว) */}
           <tbody>
             {sortedStudents.length > 0 ? (
               sortedStudents.map((st, idx) => {
@@ -186,10 +174,13 @@ export default function CourseAttendanceSheetPrintForm({
                 const absentCount =
                   st.totalAbsent ??
                   Object.values(st.records || {}).filter((v) => v === 'ขาดเรียน').length;
+
+                // ฐานการคำนวณ % ยึดจากสัปดาห์ที่มีการเรียนจริง หรือ totalWeeks
+                const divisor = actualRecordedWeeks || totalWeeks;
                 const percent =
                   st.percentage ??
-                  (totalWeeks > 0
-                    ? Math.round(((presentCount + lateCount) / totalWeeks) * 100)
+                  (divisor > 0
+                    ? Math.round(((presentCount + lateCount) / divisor) * 100)
                     : 0);
 
                 return (

@@ -6,8 +6,8 @@ import Webcam from 'react-webcam';
 import Link from 'next/link';
 import * as faceapi from 'face-api.js';
 
-// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ Render URL อัตโนมัติ)
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ค่าเริ่มต้น)
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
 
 // ลำดับมุมและท่าทางที่ต้องการให้ตรวจจับ
 const SCAN_STEPS = [
@@ -315,12 +315,10 @@ export default function FaceEnrollmentPage() {
         const chin = pts[8];
         const eyeMidY = (pts[36].y + pts[45].y) / 2;
 
-        // สัดส่วนแนวนอน (Yaw Ratio)
         const distLeft = Math.abs(nose.x - leftJaw.x);
         const distRight = Math.abs(rightJaw.x - nose.x);
         const yawRatio = distLeft / (distRight + 0.001);
 
-        // สัดส่วนแนวตั้ง (Pitch Ratio)
         const topDist = Math.abs(nose.y - eyeMidY);
         const bottomDist = Math.abs(chin.y - nose.y);
         const pitchRatio = topDist / (bottomDist + 0.001);
@@ -331,19 +329,14 @@ export default function FaceEnrollmentPage() {
         let matched = false;
 
         if (currentStep.id === 'STRAIGHT') {
-          // หน้าตรง: ความสมมาตรกึ่งกลาง
           matched = yawRatio >= 0.72 && yawRatio <= 1.38 && pitchRatio >= 0.55 && pitchRatio <= 0.95;
         } else if (currentStep.id === 'LEFT') {
-          // หันซ้าย
           matched = yawRatio >= 1.40 || yawRatio <= 0.65;
         } else if (currentStep.id === 'RIGHT') {
-          // หันขวา
           matched = yawRatio <= 0.65 || yawRatio >= 1.40;
         } else if (currentStep.id === 'DOWN') {
-          // ก้มหน้า
           matched = pitchRatio >= 0.90;
         } else if (currentStep.id === 'UP') {
-          // เงยหน้า
           matched = pitchRatio <= 0.58;
         }
 
@@ -351,7 +344,6 @@ export default function FaceEnrollmentPage() {
           setIsPoseMatched(true);
           poseHoldCounterRef.current += 1;
 
-          // ตรวจจับนิ่งไว้ 2 เฟรม (~280ms) เพื่อยืนยันว่าผู้ใช้หันศีรษะจริง
           if (poseHoldCounterRef.current >= 2) {
             executeStepCapture(scanStepIndex);
           }
@@ -489,7 +481,7 @@ export default function FaceEnrollmentPage() {
               type="button"
               onClick={() => setShowConfirmModal(true)}
               disabled={isLoading || (!files || files.length < 3)}
-              className="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-3.5 rounded-xl font-bold text-sm shadow-sm active:scale-[0.99] disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer transition-all mt-4"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-xl font-bold text-sm shadow-sm active:scale-[0.99] disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer transition-all mt-4"
             >
               {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการลงทะเบียนใบหน้า'}
             </button>
@@ -546,7 +538,7 @@ export default function FaceEnrollmentPage() {
                   type="button"
                   onClick={handleStartScan}
                   disabled={!isModelsLoaded}
-                  className="bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer disabled:bg-slate-300"
+                  className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-6 py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer disabled:bg-slate-300"
                 >
                   {isModelsLoaded ? 'เริ่มสแกนใบหน้า (ตรวจจับอัตโนมัติ)' : 'กำลังเตรียมระบบ AI...'}
                 </button>
@@ -639,7 +631,7 @@ export default function FaceEnrollmentPage() {
                   setShowConfirmModal(false);
                   handleFinalSave([]);
                 }}
-                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
               >
                 ยืนยันบันทึก
               </button>
@@ -661,7 +653,7 @@ export default function FaceEnrollmentPage() {
               type="button"
               onClick={handleCloseAlertModal}
               className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
-                alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
+                alertModal.isSuccess ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
               }`}
             >
               ตกลง

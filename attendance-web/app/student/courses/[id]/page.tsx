@@ -110,18 +110,15 @@ export default function StudentCourseDetailPage() {
         }
     }, [fetchDetails, router]);
 
-    // กรองและเรียงลำดับรายการตามวันที่/เวลา โดยอิงเงื่อนไขเดียวกับฝั่งอาจารย์
+    // กรองและเรียงลำดับรายการตามวันที่/เวลา โดยแสดงผลครบถ้วนทุกสัปดาห์ที่บันทึก
     const studentAttendanceList = useMemo(() => {
         if (!courseData?.attendance) return [];
 
-        const sorted = [...courseData.attendance].sort((a, b) => {
+        return [...courseData.attendance].sort((a, b) => {
             const dateA = new Date(a.date || a.createdAt || 0).getTime();
             const dateB = new Date(b.date || b.createdAt || 0).getTime();
             return dateA - dateB;
         });
-
-        // จำกัดให้แสดงผลไม่เกิน 2 สัปดาห์แรก (หรือตามจำนวนรายการที่บันทึกจริงที่มีอยู่แล้ว)
-        return sorted.slice(0, 2);
     }, [courseData]);
 
     const summary = useMemo(() => {

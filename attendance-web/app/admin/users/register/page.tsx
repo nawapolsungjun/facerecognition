@@ -104,9 +104,14 @@ export default function RegisterUserPage() {
 
   const handleCloseAlertModal = () => {
     const wasSuccess = alertModal.isSuccess;
+    const currentRole = formData.role;
     setAlertModal({ show: false, title: '', message: '', isSuccess: false });
     if (wasSuccess) {
-      router.push('/admin/users/register');
+      if (currentRole === 'TEACHER') {
+        router.push('/admin/users?tab=teacher');
+      } else {
+        router.push('/admin/users?tab=STUDENT');
+      }
     }
   };
 

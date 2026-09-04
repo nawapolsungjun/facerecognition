@@ -1,3 +1,4 @@
+// attendance-web/app/api/report/[id]/route.ts
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
@@ -25,13 +26,15 @@ export async function GET(
     const sessionTypeParam = searchParams.get('sessionType');
 
     // =========================================================================
-    // 1. โหมดสรุปสถิติรายสัปดาห์ (Weeks Mode: รองรับสอนชดเชยวันเดียวกันแยกคาบ)
+    // 1. โหมดสรุปสถิติรายสัปดาห์ (Weeks Mode: แยกคาบปกติ/ชดเชย และเช้า/บ่าย ด้วย sessionId)
     // =========================================================================
     if (mode === 'weeks') {
       const course = await prisma.course.findUnique({
         where: { id: courseId },
         include: {
-          students: true,
+          students: {
+            orderBy: { studentCode: 'asc' },
+          },
         },
       });
 
@@ -41,26 +44,84 @@ export async function GET(
 
       const totalStudentsInClass = course.students.length;
 
-      // ดึง AttendanceSession ทั้งหมดของวิชานี้ เรียงตามลำดับเวลาการสอนจริง
+      // ดึง AttendanceSession ทั้งหมดเรียงตามเวลา
       const sessions = await prisma.attendanceSession.findMany({
         where: { courseId: courseId },
-        include: {
-          attendances: {
-            orderBy: [
-              { updatedAt: 'desc' },
-              { createdAt: 'desc' },
-              { id: 'desc' },
-            ],
-          },
-        },
         orderBy: { createdAt: 'asc' },
       });
 
-      // แต่ละ Session คือ 1 คาบเรียน (ลงสัปดาห์ที่ 1, สัปดาห์ที่ 2, ... ต่อเนื่องกัน)
-      const weeksData = sessions.map((session: any, index: number) => {
+      // ดึง Attendance ทั้งหมด (เรียงใหม่ไปเก่า เพื่อให้เรคคอร์ดล่าสุดอยู่บนสุด)
+      const allAttendances = await prisma.attendance.findMany({
+        where: { courseId: courseId },
+        orderBy: [
+          { updatedAt: 'desc' },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+      });
+
+      // จัดกลุ่ม Session ที่เป็นคาบเดียวกัน (วันที่ + ช่วงเวลา + ประเภทคาบ) ให้อยู่ในกลุ่มเดียวกัน
+      const uniqueSlotsMap = new Map<string, any>();
+
+      sessions.forEach((sess: any) => {
+        const d = new Date(sess.date || sess.createdAt);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const rawDate = `${y}-${m}-${day}`;
+        const dateStr = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+
+        const sessionNote = sess.note || '';
+        let timeSlot = sess.timeSlot || '';
+        const match = `${sessionNote} ${timeSlot}`.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+        if (match) {
+          timeSlot = `${match[1]}-${match[2]}`.replace(/\s+/g, '');
+        } else {
+          const hr = d.getHours();
+          timeSlot = hr < 12 ? '09:00-12:00' : '13:00-16:00';
+        }
+
+        const isComp = sess.sessionType === 'COMPENSATION' || sessionNote.includes('สอนชดเชย');
+        const sessionType = isComp ? 'COMPENSATION' : 'REGULAR';
+        const slotKey = `${rawDate}_${timeSlot}_${sessionType}`;
+
+        if (!uniqueSlotsMap.has(slotKey)) {
+          uniqueSlotsMap.set(slotKey, {
+            primarySessionId: sess.id,
+            sessionIds: [sess.id],
+            rawDate,
+            dateStr,
+            timeStr: timeSlot,
+            sessionType,
+            note: sessionNote,
+            createdAt: sess.createdAt,
+          });
+        } else {
+          const existing = uniqueSlotsMap.get(slotKey);
+          if (!existing.sessionIds.includes(sess.id)) {
+            existing.sessionIds.push(sess.id);
+          }
+          if (sessionNote && !existing.note) {
+            existing.note = sessionNote;
+          }
+        }
+      });
+
+      const consolidatedSessions = Array.from(uniqueSlotsMap.values()).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+      // สร้างข้อมูลสัปดาห์จากกลุ่มที่จัดแล้ว
+      const weeksData = consolidatedSessions.map((slotGroup: any, index: number) => {
         const studentLatestStatus = new Map<number, string>();
 
-        session.attendances.forEach((att: any) => {
+        // คัดกรอง attendance ที่ผูกกับ sessionId ในกลุ่มนี้โดยตรง (แม่นยำ 100% ไม่ปนคาบอื่น)
+        const slotAttendances = allAttendances.filter((att: any) => {
+          return att.sessionId && slotGroup.sessionIds.includes(att.sessionId);
+        });
+
+        // ดึงสถานะล่าสุดของนักศึกษาในคาบนี้
+        slotAttendances.forEach((att: any) => {
           if (!studentLatestStatus.has(att.studentId)) {
             studentLatestStatus.set(att.studentId, att.status);
           }
@@ -79,35 +140,24 @@ export async function GET(
           else absent++;
         });
 
-        const d = new Date(session.createdAt);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        const rawDate = `${y}-${m}-${day}`;
-        const dateStr = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-        const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-
-        const sessionNote = session.note || '';
-        const timeSlotMatch = sessionNote.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/);
-        const extractedSlot = timeSlotMatch ? timeSlotMatch[0].replace(/\s+/g, '') : '';
-
         const percentage = totalStudentsInClass > 0
           ? Math.round(((present + late) / totalStudentsInClass) * 100)
           : 0;
 
         return {
           weekNumber: index + 1,
-          sessionId: session.id,
-          rawDate,
-          dateStr,
-          timeStr: extractedSlot || timeStr,
+          sessionId: slotGroup.primarySessionId,
+          rawDate: slotGroup.rawDate,
+          dateStr: slotGroup.dateStr,
+          timeStr: slotGroup.timeStr,
+          sessionType: slotGroup.sessionType,
           present,
           late,
           leave,
           absent,
           totalCount: totalStudentsInClass,
           percentage,
-          note: sessionNote,
+          note: slotGroup.note,
           isChecked: true,
         };
       });
@@ -120,7 +170,7 @@ export async function GET(
     }
 
     // =========================================================================
-    // 2. โหมดรายงานประจำวัน (Daily Mode)
+    // 2. โหมดรายงานประจำวัน (Daily Mode: แยกคาบด้วย sessionId 100%)
     // =========================================================================
     const targetDate = dateParam ? new Date(dateParam) : new Date();
     const startOfDay = new Date(targetDate);
@@ -143,26 +193,46 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'ไม่พบรายวิชานี้ในระบบ' }, { status: 404 });
     }
 
-    const whereAttendance: any = {
-      courseId: courseId,
-      OR: [
-        {
-          date: {
-            gte: startOfDay,
-            lte: endOfDay,
-          },
+    // ค้นหา Sessions ในวันนั้น
+    const daySessions = await prisma.attendanceSession.findMany({
+      where: {
+        courseId: courseId,
+        createdAt: {
+          gte: startOfDay,
+          lte: endOfDay,
         },
-        {
-          createdAt: {
-            gte: startOfDay,
-            lte: endOfDay,
-          },
-        },
-      ],
-    };
+      },
+    });
 
+    // หา Session IDs ที่ตรงกับคาบ/ช่วงเวลาที่เลือก
+    let targetSessionIds: string[] = [];
+    if (timeSlotParam || sessionTypeParam) {
+      const cleanSlot = timeSlotParam ? timeSlotParam.replace(/\s+/g, '') : null;
+      targetSessionIds = daySessions
+        .filter((sess: any) => {
+          const fullText = `${sess.note || ''} ${sess.timeSlot || ''}`;
+          const isComp = sess.sessionType === 'COMPENSATION' || fullText.includes('สอนชดเชย');
+          const sessType = isComp ? 'COMPENSATION' : 'REGULAR';
+
+          const matchType = sessionTypeParam ? sessType === sessionTypeParam : true;
+          const matchSlot = cleanSlot ? fullText.replace(/\s+/g, '').includes(cleanSlot) : true;
+
+          return matchType && matchSlot;
+        })
+        .map((s: any) => s.id);
+    } else if (daySessions.length > 0) {
+      // ถ้าไม่ได้ระบุ ให้เอา Session ทั้งหมดในวันนั้น
+      targetSessionIds = daySessions.map((s: any) => s.id);
+    }
+
+    // ดึง Attendance ที่ผูกกับ sessionId เหล่านี้โดยตรง
     const attendances = await prisma.attendance.findMany({
-      where: whereAttendance,
+      where: {
+        courseId: courseId,
+        sessionId: {
+          in: targetSessionIds.length > 0 ? targetSessionIds : daySessions.map((s: any) => s.id),
+        },
+      },
       orderBy: [
         { updatedAt: 'desc' },
         { createdAt: 'desc' },
@@ -170,26 +240,10 @@ export async function GET(
       ],
     });
 
-    // กรองตาม timeSlot หรือ sessionType หากระบุมาใน query
-    let filteredAttendances = attendances;
-    if (timeSlotParam || sessionTypeParam) {
-      filteredAttendances = attendances.filter((att: any) => {
-        const remark = att.remark || '';
-        const matchSlot = timeSlotParam ? remark.includes(timeSlotParam) : true;
-        const matchType = sessionTypeParam === 'COMPENSATION' ? remark.includes('[สอนชดเชย]') : true;
-        return matchSlot && matchType;
-      });
-
-      // ถ้าไม่มีให้ fallback กลับมาใช้ attendances ทั้งหมดของวันนั้น
-      if (filteredAttendances.length === 0) {
-        filteredAttendances = attendances;
-      }
-    }
-
     let present = 0, late = 0, leave = 0, absent = 0;
 
     const reportList = course.students.map((student: any) => {
-      const record = filteredAttendances.find((att: any) => att.studentId === student.id);
+      const record = attendances.find((att: any) => att.studentId === student.id);
       const status = record ? record.status : 'ขาดเรียน';
       const time = record?.createdAt || record?.date || null;
       const remark = record?.remark || '';

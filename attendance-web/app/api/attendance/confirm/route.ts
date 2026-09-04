@@ -1,5 +1,8 @@
+// attendance-web/app/api/attendance/confirm/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import fs from 'fs';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +19,8 @@ export async function POST(request: Request) {
       attendanceData,
       detectedNames,
       note,
-      round
+      sessionNote,
+      round,
     } = body;
 
     // 1. ตรวจสอบความถูกต้องของ courseId
@@ -31,8 +35,8 @@ export async function POST(request: Request) {
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
-        students: true
-      }
+        students: true,
+      },
     });
 
     if (!course) {
@@ -42,113 +46,129 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. ป้องกันปัญหา Base64 ใหญ่เกินไปจนทำให้ Transaction Timeout
-    // เราจะบันทึกเฉพาะ path หรือตัดให้สั้นลง หรือเว้นไว้หากไฟล์ใหญ่เกิน 1MB เพื่อความเสถียร
-    const rawImages: string[] = Array.isArray(imageUrls)
-      ? imageUrls
-      : imageUrl
-      ? [imageUrl]
-      : [];
+    // 3. จัดการแปลงรูปภาพเป็นไฟล์จริงใน public/uploads/
+    let finalImageUrl: string | null = null;
+    const rawImage = imageUrl || (Array.isArray(imageUrls) && imageUrls[0]) || null;
 
-    const savedPaths: string[] = [];
-    if (rawImages.length > 0) {
-      for (const imgStr of rawImages) {
-        if (imgStr) {
-          // ถ้าเป็น Base64 ยาวเกินไป (> 500KB) ให้ตัดเหลือข้อความแจ้งเตือนหรือบันทึกเฉพาะส่วนหัว
-          // เพื่อไม่ให้ฐานข้อมูล Supabase ล่มและ Transaction Timeout
-          if (imgStr.startsWith('data:image') && imgStr.length > 500000) {
-            savedPaths.push("[Large Image Base64 Omitted for Performance]");
-          } else {
-            savedPaths.push(imgStr);
+    if (rawImage && typeof rawImage === 'string') {
+      if (rawImage.startsWith('data:image')) {
+        // หากส่งมาเป็น Base64 ให้เขียนไฟล์ลง public/uploads/
+        try {
+          const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+          if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
           }
+
+          const matches = rawImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+            const buffer = Buffer.from(matches[2], 'base64');
+            const fileName = `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`;
+            const filePath = path.join(uploadDir, fileName);
+
+            fs.writeFileSync(filePath, buffer);
+            finalImageUrl = `/uploads/${fileName}`; // ได้ Path รูปแบบเดียวกับ 3 แถวด้านบน
+          }
+        } catch (fileErr) {
+          console.error('Save image file error:', fileErr);
+          finalImageUrl = null;
         }
+      } else if (rawImage.startsWith('/uploads/')) {
+        // หากส่งมาเป็น URL Path อยู่แล้ว
+        finalImageUrl = rawImage;
       }
     }
 
-    const savedImagePath = savedPaths.length > 0 ? savedPaths.join(',') : null;
-
-    // 4. บันทึก "เวลาจริงที่เช็คชื่อ" (Real Timestamp)
+    // 4. บันทึกวันและเวลา
     const now = new Date();
     let sessionDate = new Date();
 
     if (date) {
       const [year, month, day] = date.split('-').map(Number);
-      sessionDate = new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
+      sessionDate = new Date(
+        year,
+        month - 1,
+        day,
+        now.getHours(),
+        now.getMinutes(),
+        now.getSeconds()
+      );
     }
 
     const currentRoundNumber = Number(round) || 1;
     const currentSlot = timeSlot || '09:00-12:00';
     const currentType = sessionType === 'COMPENSATION' ? 'COMPENSATION' : 'REGULAR';
+    const customRemark = sessionNote || note || '';
 
-    const defaultSessionNote = note || (
-      currentType === 'COMPENSATION'
-        ? `[สอนชดเชย] ช่วงเวลา ${currentSlot} น. (รอบที่ ${currentRoundNumber})`
-        : `ช่วงเวลา ${currentSlot} น. (รอบที่ ${currentRoundNumber})`
-    );
+    const defaultSessionNote = customRemark
+      ? `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber}) - ${customRemark}`
+      : `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber})`;
 
-    // 5. สร้าง Map สถานะและ Remark
-    const statusMap = new Map<number, { status: string; remark?: string }>();
+    // 5. สร้าง Map สถานะนักศึกษา
+    const statusMap = new Map<string, { status: string; remark?: string }>();
     if (Array.isArray(attendanceData)) {
       attendanceData.forEach((item: any) => {
-        if (item.studentId) {
-          statusMap.set(Number(item.studentId), {
+        if (item.studentId !== undefined && item.studentId !== null) {
+          statusMap.set(String(item.studentId), {
             status: item.status || 'ขาดเรียน',
-            remark: item.remark || (currentRoundNumber >= 2 && item.status === 'มาสาย' ? `เช็คชื่อรอบที่ 2 (${currentSlot} น.)` : undefined)
+            remark: item.remark || undefined,
           });
         }
       });
     }
 
-    // 6. บันทึกข้อมูลด้วย Database Transaction พร้อมขยายเวลา Timeout เป็น 15 วินาที (15000ms)
-    const result = await prisma.$transaction(async (tx) => {
-      const newSession = await tx.attendanceSession.create({
-        data: {
-          courseId: courseId,
-          roundNumber: currentRoundNumber,
-          imageUrl: savedImagePath,
-          note: defaultSessionNote,
-          createdAt: sessionDate,
-        }
-      });
+    // 6. บันทึกลงฐานข้อมูล
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const newSession = await tx.attendanceSession.create({
+          data: {
+            courseId: courseId,
+            roundNumber: currentRoundNumber,
+            imageUrl: finalImageUrl, // บันทึกเป็น /uploads/session_xxxx.jpg
+            note: defaultSessionNote,
+            createdAt: sessionDate,
+          },
+        });
 
-      const attendanceRecords = course.students.map((student: any) => {
-        const evaluated = statusMap.get(student.id);
-        const finalStatus = evaluated ? evaluated.status : 'ขาดเรียน';
-        
-        let finalRemark = evaluated?.remark;
-        if (!finalRemark) {
-          if (currentType === 'COMPENSATION') {
-            finalRemark = `[สอนชดเชย] ${finalStatus === 'มาเรียน' ? 'เข้าเรียน' : finalStatus} (${currentSlot} น.)`;
-          } else if (currentRoundNumber >= 2 && finalStatus === 'มาสาย') {
-            finalRemark = `เช็คชื่อรอบที่ 2 (${currentSlot} น.)`;
+        const attendanceRecords = course.students.map((student: any) => {
+          const evaluated = statusMap.get(String(student.id));
+          const finalStatus = evaluated ? evaluated.status : 'ขาดเรียน';
+
+          let finalRemark = evaluated?.remark;
+          if (!finalRemark) {
+            if (currentType === 'COMPENSATION') {
+              finalRemark = `[สอนชดเชย] ${finalStatus === 'มาเรียน' ? 'เข้าเรียน' : finalStatus} (${currentSlot} น.)`;
+            } else if (currentRoundNumber >= 2 && finalStatus === 'มาสาย') {
+              finalRemark = `เช็คชื่อรอบที่ 2 (${currentSlot} น.)`;
+            }
           }
-        }
+
+          return {
+            studentId: student.id,
+            courseId: courseId,
+            status: finalStatus,
+            remark: finalRemark || null,
+            sessionId: newSession.id,
+            date: sessionDate,
+            createdAt: sessionDate,
+            updatedAt: new Date(),
+          };
+        });
+
+        await tx.attendance.createMany({
+          data: attendanceRecords,
+        });
 
         return {
-          studentId: student.id,
-          courseId: courseId,
-          status: finalStatus,
-          remark: finalRemark || null,
           sessionId: newSession.id,
-          date: sessionDate,
-          createdAt: sessionDate,
-          updatedAt: new Date(),
+          roundNumber: currentRoundNumber,
+          sessionType: currentType,
+          timeSlot: currentSlot,
         };
-      });
-
-      await tx.attendance.createMany({
-        data: attendanceRecords,
-      });
-
-      return {
-        sessionId: newSession.id,
-        roundNumber: currentRoundNumber,
-        sessionType: currentType,
-        timeSlot: currentSlot,
-      };
-    }, {
-      timeout: 15000, // ขยายเวลา Timeout เป็น 15 วินาที ป้องกัน Transaction หมดอายุ
-    });
+      },
+      {
+        timeout: 15000,
+      }
+    );
 
     const typeLabel = result.sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบปกติ';
     return NextResponse.json({
@@ -156,9 +176,8 @@ export async function POST(request: Request) {
       message: `บันทึกการเช็คชื่อ ${typeLabel} (${result.timeSlot} น.) รอบที่ ${result.roundNumber} เรียบร้อยแล้ว`,
       data: result,
     });
-
   } catch (error: any) {
-    console.error('Confirm Attendance API Error:', error.message);
+    console.error('Confirm Attendance API Error:', error);
     return NextResponse.json(
       { success: false, error: error.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' },
       { status: 500 }

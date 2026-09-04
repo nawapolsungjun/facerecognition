@@ -12,7 +12,7 @@ export default function AdminCourseStudentsPage() {
 
   const [course, setCourse] = useState<any>(null);
   const [allStudents, setAllStudents] = useState<any[]>([]);
-  const [courseHistory, setCourseHistory] = useState<any[]>([]);
+  const [courseWeeksData, setCourseWeeksData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -65,15 +65,18 @@ export default function AdminCourseStudentsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ดึงข้อมูลทั้งรายชื่อนักศึกษาและประวัติการเช็คชื่อทั้งหมดพร้อมกัน
+  // ดึงข้อมูลรายชื่อนักศึกษาและข้อมูลสรุปสัปดาห์จาก API report แบบเดียวกับหน้า Report หลัก
   const fetchData = useCallback(async () => {
     setLoading(true);
     const token = getAuthToken();
     try {
-      const [resStudents, resHistory] = await Promise.all([
+      const [resStudents, resWeeks, resHistory] = await Promise.all([
         fetch(`/api/admin/courses/${courseId}/students`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
+        fetch(`/api/report/${courseId}?mode=weeks`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => null),
         fetch(`/api/attendance/history/${courseId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }).catch(() => null)
@@ -94,14 +97,48 @@ export default function AdminCourseStudentsPage() {
         });
       }
 
+      if (resWeeks && resWeeks.ok) {
+        const weeksJson = await resWeeks.ok ? await resWeeks.json() : { success: false, data: [] };
+        if (weeksJson.success && Array.isArray(weeksJson.data)) {
+          setCourseWeeksData(weeksJson.data);
+        }
+      }
+
+      // สำรองข้อมูลประวัติเพื่อใช้จับคู่ชื่อและข้อมูลย่อยถ้าจำเป็น
       if (resHistory && resHistory.ok) {
         const historyJson = await resHistory.json();
-        const rawHistory = Array.isArray(historyJson.data)
-          ? historyJson.data
-          : Array.isArray(historyJson)
-          ? historyJson
-          : [];
-        setCourseHistory(rawHistory);
+        const rawHistory = Array.isArray(historyJson.data) ? historyJson.data : Array.isArray(historyJson) ? historyJson : [];
+        if (course && course.students) {
+          // ผูก attendances เข้ากับนักศึกษาแต่ละคนให้ตรงกัน
+          const updatedStudents = course.students.map((st: any) => {
+            const stId = String(st.id);
+            const stCode = String(st.studentCode || '').trim();
+            const stAttendances: any[] = [];
+
+            rawHistory.forEach((sess: any) => {
+              const records = sess.attendances || sess.records || [];
+              const matched = records.find((r: any) => {
+                const rId = String(r.studentId || r.student?.id || r.id || '');
+                const rCode = String(r.studentCode || r.student?.studentCode || '').trim();
+                return (stId && rId === stId) || (stCode && rCode === stCode);
+              });
+
+              if (matched) {
+                stAttendances.push({
+                  ...matched,
+                  sessionId: sess.id,
+                  sessionType: sess.sessionType,
+                  timeSlot: sess.timeSlot,
+                  note: sess.note,
+                  createdAt: sess.createdAt || sess.date
+                });
+              }
+            });
+
+            return { ...st, attendances: stAttendances };
+          });
+          setCourse((prev: any) => prev ? { ...prev, students: updatedStudents } : prev);
+        }
       }
     } catch (err) {
       console.error("Error fetching students:", err);
@@ -114,43 +151,11 @@ export default function AdminCourseStudentsPage() {
     if (courseId) fetchData();
   }, [courseId, fetchData]);
 
-  // ฟังก์ชันเปิด Modal รายงาน พร้อมดึงประวัติการเข้าเรียนของนักศึกษาคนนั้นๆ
+  // ฟังก์ชันเปิด Modal รายงานสถิติของนักศึกษา
   const handleOpenStudentReport = (student: any, displayName: string) => {
-    let studentAttendances: any[] = [];
-
-    if (Array.isArray(student.attendances) && student.attendances.length > 0) {
-      studentAttendances = student.attendances;
-    } else if (courseHistory.length > 0) {
-      const stId = String(student.id || '');
-      const stCode = String(student.studentCode || '').trim();
-
-      courseHistory.forEach((session: any) => {
-        const sessionList = session.attendances || session.records || [];
-        const matched = sessionList.find((r: any) => {
-          const rId = String(r.studentId || r.student?.id || r.id || '');
-          const rCode = String(r.studentCode || r.student?.studentCode || '').trim();
-          return (stId && rId === stId) || (stCode && rCode === stCode);
-        });
-
-        if (matched) {
-          studentAttendances.push({
-            id: matched.id || `${session.id}_${student.id}`,
-            date: matched.date || session.date || session.createdAt,
-            time: matched.time || session.createdAt,
-            status: matched.status,
-            remark: matched.remark || session.remark || session.note || '',
-            sessionType: session.sessionType,
-            timeSlot: session.timeSlot,
-            createdAt: session.createdAt
-          });
-        }
-      });
-    }
-
     setSelectedStudentForReport({
       ...student,
       displayName,
-      attendances: studentAttendances
     });
     setIsReportModalOpen(true);
   };
@@ -357,82 +362,56 @@ export default function AdminCourseStudentsPage() {
       });
   }, [course?.students, searchTerm, sortOrder]);
 
-  // จัดกลุ่มและเรียงลำดับสัปดาห์ให้ตรงกับหน้า Report (ยุบรวมรอบย่อยในคาบเดียวกัน)
-  const sessionAttendances = useMemo(() => {
-    if (!selectedStudentForReport?.attendances || !Array.isArray(selectedStudentForReport.attendances)) return [];
+  // ประมวลผลตาราง 15 สัปดาห์มาตรฐานใน Modal ให้ตรงกับตารางรายงานหลัก 100%
+  const studentWeeklyAttendance = useMemo(() => {
+    if (!selectedStudentForReport) return [];
 
-    // 1. เรียงลำดับจากเวลาที่กดบันทึกจริงล่าสุดไปเก่าสุด เพื่อให้ข้อมูลรอบที่อัปเดตล่าสุดมาเป็นตัวแทนผลลัพธ์
-    const sorted = [...selectedStudentForReport.attendances].sort((a: any, b: any) => {
-      const dateA = new Date(a.createdAt || a.date || 0).getTime();
-      const dateB = new Date(b.createdAt || b.date || 0).getTime();
-      return dateB - dateA;
-    });
+    const studentAtts: any[] = selectedStudentForReport.attendances || [];
+    const totalWeeks = 15;
+    const weeksList = [];
 
-    // 2. ยุบรวมรอบย่อยตาม วันที่ + ช่วงเวลา + ประเภทคาบเรียน
-    const sessionMap = new Map<string, any>();
+    for (let i = 0; i < totalWeeks; i++) {
+      const weekIndex = i + 1;
+      const sessionSummary = courseWeeksData[i] || null;
 
-    for (const record of sorted) {
-      const d = new Date(record.date || record.createdAt);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const dateKey = `${year}-${month}-${day}`;
+      if (sessionSummary) {
+        // ค้นหาเรคคอร์ดที่ตรงกับ sessionId ของสัปดาห์นั้น
+        const matchedAtt = studentAtts.find((att: any) => {
+          return att.sessionId && sessionSummary.sessionId && att.sessionId === sessionSummary.sessionId;
+        });
 
-      let timeKey = record.timeSlot || '';
-      if (!timeKey && record.remark) {
-        const match = record.remark.match(/\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}/);
-        if (match) {
-          timeKey = match[0].replace(/\s+/g, '');
-        }
-      }
-      if (!timeKey) {
-        const hours = d.getHours();
-        if (hours < 12) timeKey = '09:00-11:00';
-        else if (hours < 17) timeKey = '13:00-16:00';
-        else timeKey = '17:00-20:00';
-      }
+        // หากไม่เจอด้วย sessionId ให้เทียบจากวันที่
+        const bestRecord = matchedAtt || studentAtts.find((att: any) => {
+          const attDate = new Date(att.date || att.createdAt).toISOString().split('T')[0];
+          return attDate === sessionSummary.rawDate;
+        });
 
-      // ดึงเวลาเริ่มต้นของคาบเรียน (เช่น "09:00", "13:00")
-      const rawStart = (timeKey.split('-')[0] || '00:00').trim();
-      const startTime = rawStart.padStart(5, '0');
-
-      const isComp = (record.sessionType === 'COMPENSATION') || (record.remark || '').includes('[สอนชดเชย]');
-      const typeKey = isComp ? 'COMPENSATION' : 'REGULAR';
-      const uniqueKey = `${dateKey}_${timeKey}_${typeKey}`;
-
-      if (!sessionMap.has(uniqueKey)) {
-        sessionMap.set(uniqueKey, {
-          ...record,
-          dateKey,
-          timeKey,
-          startTime,
-          isComp,
-          uniqueKey,
-          rawTimestamp: new Date(record.date || record.createdAt || 0).getTime()
+        weeksList.push({
+          weekNumber: weekIndex,
+          isRecorded: true,
+          date: sessionSummary.rawDate || sessionSummary.dateStr,
+          timeLabel: sessionSummary.timeStr || '',
+          isComp: sessionSummary.sessionType === 'COMPENSATION',
+          status: bestRecord ? bestRecord.status : 'ขาดเรียน',
+          remark: bestRecord?.remark || sessionSummary.note || '',
+          recordTime: bestRecord?.createdAt || bestRecord?.date || null
+        });
+      } else {
+        weeksList.push({
+          weekNumber: weekIndex,
+          isRecorded: false,
+          date: null,
+          timeLabel: '',
+          isComp: false,
+          status: 'ยังไม่บันทึก',
+          remark: '',
+          recordTime: null
         });
       }
     }
 
-    // 3. เรียงลำดับตาม วันที่ (เก่าไปใหม่) แล้วตามด้วย เวลาเริ่มคาบเรียน (เช่น 09:00 ก่อน 13:00) ให้ตรงกับ Report
-    const chronologicalSessions = Array.from(sessionMap.values()).sort((a, b) => {
-      const dateCompare = a.dateKey.localeCompare(b.dateKey);
-      if (dateCompare !== 0) return dateCompare;
-
-      const timeCompare = a.startTime.localeCompare(b.startTime);
-      if (timeCompare !== 0) return timeCompare;
-
-      if (a.isComp !== b.isComp) {
-        return a.isComp ? 1 : -1;
-      }
-
-      return a.rawTimestamp - b.rawTimestamp;
-    });
-
-    return chronologicalSessions.map((session, idx) => ({
-      ...session,
-      weekNumber: idx + 1
-    }));
-  }, [selectedStudentForReport]);
+    return weeksList;
+  }, [selectedStudentForReport, courseWeeksData]);
 
   const teacherName = course?.teacher?.firstName
     ? `${course.teacher.firstName} ${course.teacher.lastName || ''}`.trim()
@@ -709,7 +688,7 @@ export default function AdminCourseStudentsPage() {
       {/* 5. Center Modal Popup: แก้ไขข้อมูลรายวิชา */}
       {isEditingCourse && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center pb-3 mb-4 border-b border-slate-100">
               <h3 className="text-lg font-black text-slate-800">แก้ไขข้อมูลรายวิชา</h3>
               <button
@@ -795,13 +774,13 @@ export default function AdminCourseStudentsPage() {
         </div>
       )}
 
-      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา (สำหรับ Admin - แสดงผลยุบรวมตามสัปดาห์/คาบเรียน) */}
+      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา (สำหรับ Admin - แสดงผล 15 สัปดาห์มาตรฐาน) */}
       {isReportModalOpen && selectedStudentForReport && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-xl w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
 
             {/* Header ของ Modal */}
-            <div className="flex justify-between items-start pb-4 mb-5 border-b border-slate-100">
+            <div className="flex justify-between items-start pb-4 mb-4 border-b border-slate-100">
               <div>
                 <h2 className="text-xl font-black text-slate-800 leading-tight">
                   {selectedStudentForReport.displayName || selectedStudentForReport.name}
@@ -819,82 +798,112 @@ export default function AdminCourseStudentsPage() {
               </button>
             </div>
 
-            {/* กล่องสรุปสถานะการเข้าเรียนตามสัปดาห์ */}
-            <div className="grid grid-cols-4 gap-2 mb-5">
+            {/* กล่องสรุปสถานะการเข้าเรียน 4 ช่อง */}
+            <div className="grid grid-cols-4 gap-2 mb-4">
               {[
                 { label: 'มาเรียน', val: 'มาเรียน', color: 'text-emerald-700', bg: 'bg-emerald-50' },
                 { label: 'มาสาย', val: 'มาสาย', color: 'text-amber-700', bg: 'bg-amber-50' },
                 { label: 'ลา', val: 'ลา', color: 'text-blue-700', bg: 'bg-blue-50' },
                 { label: 'ขาดเรียน', val: 'ขาดเรียน', color: 'text-red-700', bg: 'bg-red-50' }
               ].map((item) => (
-                <div key={item.val} className={`${item.bg} p-3 rounded-2xl text-center border border-slate-100`}>
-                  <p className="text-[10px] font-bold text-slate-500 mb-1">{item.label}</p>
-                  <p className={`text-xl font-black ${item.color}`}>
-                    {sessionAttendances.filter((a: any) => a.status === item.val).length}
+                <div key={item.val} className={`${item.bg} p-2.5 rounded-2xl text-center border border-slate-100`}>
+                  <p className="text-[10px] font-bold text-slate-500 mb-0.5">{item.label}</p>
+                  <p className={`text-lg font-black ${item.color}`}>
+                    {studentWeeklyAttendance.filter((a: any) => a.isRecorded && a.status === item.val).length}
                   </p>
                 </div>
               ))}
             </div>
 
-            {/* รายการแสดงผลสรุปแยกตามสัปดาห์/คาบเรียน */}
+            {/* รายการแสดงผลสรุป 15 สัปดาห์มาตรฐานตรงกับตารางรวม */}
             <div className="flex-1 overflow-y-auto pr-1 space-y-2">
-              <div className="flex justify-between items-center mb-2">
+              <div className="flex justify-between items-center mb-1">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  ประวัติการเข้าเรียนรายสัปดาห์ ({sessionAttendances.length} สัปดาห์/คาบเรียน)
+                  ตารางสรุปสถิติ 15 สัปดาห์ตลอดภาคการศึกษา
                 </h3>
+                <span className="text-[11px] text-slate-400 font-bold">
+                  (บันทึกแล้ว {studentWeeklyAttendance.filter(w => w.isRecorded).length} จาก 15 สัปดาห์)
+                </span>
               </div>
 
-              {sessionAttendances.map((record: any) => (
-                <div key={record.uniqueKey || record.id} className="flex justify-between items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 hover:bg-slate-100/60 transition-colors">
+              {studentWeeklyAttendance.map((record: any) => (
+                <div 
+                  key={record.weekNumber} 
+                  className={`flex justify-between items-center p-3.5 rounded-2xl border transition-colors ${
+                    record.isRecorded 
+                      ? 'bg-slate-50 border-slate-200/70 hover:bg-slate-100/60' 
+                      : 'bg-slate-50/40 border-slate-100 opacity-60'
+                  }`}
+                >
                   <div className="pr-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                        record.isRecorded 
+                          ? 'bg-emerald-100 text-emerald-800' 
+                          : 'bg-slate-200 text-slate-600'
+                      }`}>
                         สัปดาห์ที่ {record.weekNumber}
                       </span>
-                      {record.isComp && (
+
+                      {record.isRecorded && record.isComp && (
                         <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-md">
                           คาบสอนชดเชย
                         </span>
                       )}
+
                       <span className="text-xs font-bold text-slate-800">
-                        {new Date(record.date || record.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                        {record.isRecorded && record.date
+                          ? new Date(record.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
+                          : 'ยังไม่บันทึก'}
                       </span>
                     </div>
 
-                    <p className="text-[11px] font-medium text-slate-400">
-                      เวลาเช็คชื่อ: {new Date(record.time || record.date || record.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
-                      {record.timeKey && <span className="ml-1 font-mono font-bold text-slate-600">({record.timeKey} น.)</span>}
-                    </p>
-                    {record.remark && (
-                      <p className="text-[11px] text-slate-500 mt-1 font-medium">
-                        {record.remark}
+                    {record.isRecorded ? (
+                      <div>
+                        <p className="text-[11px] font-medium text-slate-500">
+                          {record.timeLabel && <span className="font-mono font-bold text-slate-700 mr-1">({record.timeLabel} น.)</span>}
+                          {record.recordTime && (
+                            <span className="text-slate-400">
+                              เวลาเช็คชื่อ: {new Date(record.recordTime).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                            </span>
+                          )}
+                        </p>
+                        {record.remark && (
+                          <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                            {record.remark}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic">
+                        ยังไม่มีการบันทึกข้อมูลการเช็คชื่อในสัปดาห์นี้
                       </p>
                     )}
                   </div>
 
-                  <span className={`px-3 py-1 rounded-xl text-xs font-bold border shrink-0 ${
-                    record.status === 'มาเรียน'
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : record.status === 'มาสาย'
-                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                      : record.status === 'ลา'
-                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                      : 'bg-red-50 text-red-700 border-red-200'
-                  }`}>
-                    {record.status}
-                  </span>
+                  {record.isRecorded ? (
+                    <span className={`px-3 py-1 rounded-xl text-xs font-bold border shrink-0 ${
+                      record.status === 'มาเรียน'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : record.status === 'มาสาย'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : record.status === 'ลา'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : 'bg-red-50 text-red-700 border-red-200'
+                    }`}>
+                      {record.status}
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-xl text-xs font-bold text-slate-400 bg-slate-100 border border-slate-200 shrink-0">
+                      -
+                    </span>
+                  )}
                 </div>
               ))}
-
-              {sessionAttendances.length === 0 && (
-                <div className="text-center py-12 text-slate-400 italic text-xs font-bold">
-                  ไม่พบข้อมูลการเช็คชื่อ
-                </div>
-              )}
             </div>
 
             {/* ปุ่มปิด Modal */}
-            <div className="pt-5 mt-4 border-t border-slate-100 flex justify-end">
+            <div className="pt-4 mt-3 border-t border-slate-100 flex justify-end">
               <button
                 type="button"
                 onClick={() => setIsReportModalOpen(false)}
