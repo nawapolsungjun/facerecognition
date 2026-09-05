@@ -1,3 +1,4 @@
+// attendance-web/app/api/teacher/profile/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
@@ -55,29 +56,50 @@ export async function GET(request: Request) {
 }
 
 /**
- * [PUT] - อัปเดตข้อมูลอาจารย์ (ชื่อจริง, นามสกุล, รหัสผ่าน)
+ * [PUT] - อัปเดตข้อมูลอาจารย์ (ชื่อจริง, นามสกุล, ตรวจสอบรหัสผ่านเดิม และรหัสผ่านใหม่)
  */
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, firstName, lastName, name, password } = body;
+    const { id, firstName, lastName, name, oldPassword, password } = body;
     const searchId = id ? String(id) : "";
 
     if (!searchId) {
       return NextResponse.json({ success: false, error: 'ไม่พบ ID ผู้ใช้' }, { status: 400 });
     }
 
+    // ค้นหาข้อมูลอาจารย์พร้อมรวมตาราง User เพื่อตรวจสอบรหัสผ่านเดิม
     const teacher = await prisma.teacher.findFirst({
       where: {
         OR: [
           { id: isNaN(Number(searchId)) ? -1 : Number(searchId) },
           { userId: searchId }
         ]
+      },
+      include: {
+        user: true
       }
     });
 
     if (!teacher || !teacher.userId) {
       return NextResponse.json({ success: false, error: 'ไม่พบข้อมูลอาจารย์' }, { status: 404 });
+    }
+
+    // 🔒 หากมีการส่งรหัสผ่านใหม่มา ต้องตรวจสอบรหัสผ่านเดิมก่อน
+    if (password && password.trim().length > 0) {
+      if (!oldPassword) {
+        return NextResponse.json({ success: false, error: 'กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน' }, { status: 400 });
+      }
+
+      if (!teacher.user || !teacher.user.password) {
+        return NextResponse.json({ success: false, error: 'ไม่พบข้อมูลบัญชีผู้ใช้สำหรับตรวจสอบรหัสผ่าน' }, { status: 400 });
+      }
+
+      // เปรียบเทียบรหัสผ่านเดิมกับค่าที่แฮชไว้ในฐานข้อมูล
+      const isPasswordValid = await bcrypt.compare(oldPassword, teacher.user.password);
+      if (!isPasswordValid) {
+        return NextResponse.json({ success: false, error: 'รหัสผ่านเดิมไม่ถูกต้อง' }, { status: 400 });
+      }
     }
 
     let fName = firstName || '';
@@ -101,6 +123,7 @@ export async function PUT(request: Request) {
         });
       }
 
+      // หากผ่านการตรวจสอบรหัสผ่านเดิมแล้ว ให้นำรหัสผ่านใหม่มาแฮชและอัปเดต
       if (password && password.trim().length > 0) {
         const hashedPassword = await bcrypt.hash(password, 10);
         await tx.user.update({

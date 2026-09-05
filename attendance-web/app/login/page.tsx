@@ -2,6 +2,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -56,7 +57,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
-      
+
       {/* 1. Header ด้านบนตาม Style ระบบ */}
       <header className="bg-[#0f766e] text-white pt-10 pb-8 px-4 text-center shadow-sm">
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2">
@@ -70,7 +71,7 @@ export default function LoginPage() {
       {/* 2. Main Content Card ฟอร์มเข้าสู่ระบบ */}
       <main className="flex-1 max-w-md w-full mx-auto p-4 md:py-12 flex flex-col justify-center">
         <form onSubmit={handleLogin} className="bg-white p-6 md:p-8 rounded-3xl shadow-lg border border-slate-100 w-full animate-in zoom-in-95 duration-200">
-          
+
           <div className="text-center mb-6 pb-5 border-b border-slate-100">
             <div className="inline-flex items-center justify-center p-3.5 bg-emerald-50 text-emerald-700 rounded-2xl mb-3 border border-emerald-100 shadow-2xs">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
@@ -111,6 +112,12 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 required
               />
+            </div>
+            <div className="flex items-center justify-between text-sm mt-1">
+              <span></span> {/* ตัวดันขวา */}
+              <Link href="/forgot-password" className="text-[#0f766e] hover:underline font-medium">
+                ลืมรหัสผ่าน?
+              </Link>
             </div>
           </div>
 

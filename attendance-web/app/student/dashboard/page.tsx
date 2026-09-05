@@ -18,9 +18,20 @@ export default function StudentDashboard() {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
 
-  // State สำหรับแก้ไขข้อมูลส่วนตัว
+  // State สำหรับ PDPA Consent Modal ก่อนลงทะเบียนใบหน้า
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consented, setConsented] = useState(false);
+  const [targetEnrollUrl, setTargetEnrollUrl] = useState('/student/face-enrollment');
+
+  // State สำหรับแก้ไขข้อมูลส่วนตัว (เพิ่ม oldPassword และ confirmPassword)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editData, setEditData] = useState({ firstName: '', lastName: '', password: '' });
+  const [editData, setEditData] = useState({
+    firstName: '',
+    lastName: '',
+    oldPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
   const [isUpdating, setIsUpdating] = useState(false);
   const [showFaceWarning, setShowFaceWarning] = useState(false);
 
@@ -113,6 +124,18 @@ export default function StudentDashboard() {
     checkUserAndFace();
   }, [router, fetchMyCourses, executeLogout]);
 
+  const handleOpenConsent = (url: string) => {
+    setTargetEnrollUrl(url);
+    setConsented(false);
+    setShowConsentModal(true);
+  };
+
+  const handleProceedEnroll = () => {
+    if (!consented) return;
+    setShowConsentModal(false);
+    router.push(targetEnrollUrl);
+  };
+
   const handleJoinClick = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) {
@@ -158,7 +181,6 @@ export default function StudentDashboard() {
         setShowJoinConfirmModal(false);
         setShowNoFaceJoinModal(false);
 
-        // แสดง Popup สำเร็จ และเมื่อกดปุ่มตกลง จะบังคับรีเฟรชหน้าเว็บทันที
         setAlertModal({
           show: true,
           title: 'เข้าร่วมชั้นเรียนสำเร็จ',
@@ -197,6 +219,38 @@ export default function StudentDashboard() {
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const isChangingPassword = editData.newPassword || editData.oldPassword || editData.confirmPassword;
+    if (isChangingPassword) {
+      if (!editData.oldPassword) {
+        setAlertModal({
+          show: true,
+          title: 'ข้อมูลไม่ครบถ้วน',
+          message: 'กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน',
+          isSuccess: false,
+        });
+        return;
+      }
+      if (!editData.newPassword) {
+        setAlertModal({
+          show: true,
+          title: 'ข้อมูลไม่ครบถ้วน',
+          message: 'กรุณากรอกรหัสผ่านใหม่',
+          isSuccess: false,
+        });
+        return;
+      }
+      if (editData.newPassword !== editData.confirmPassword) {
+        setAlertModal({
+          show: true,
+          title: 'รหัสผ่านไม่ตรงกัน',
+          message: 'รหัสผ่านใหม่และยืนยันรหัสผ่านใหม่ไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง',
+          isSuccess: false,
+        });
+        return;
+      }
+    }
+
     setIsUpdating(true);
     try {
       const token = localStorage.getItem('student_token');
@@ -210,13 +264,14 @@ export default function StudentDashboard() {
           id: user.id,
           firstName: editData.firstName,
           lastName: editData.lastName,
-          password: editData.password
+          oldPassword: editData.oldPassword,
+          password: editData.newPassword
         }),
       });
       const data = await res.json();
       if (data.success) {
         setIsEditModalOpen(false);
-        if (editData.password && editData.password.length > 0) {
+        if (editData.newPassword && editData.newPassword.length > 0) {
           setAlertModal({
             show: true,
             title: 'เปลี่ยนรหัสผ่านสำเร็จ',
@@ -298,19 +353,23 @@ export default function StudentDashboard() {
 
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
               onClick={() => {
                 setEditData({
                   firstName: user.firstName || '',
                   lastName: user.lastName || '',
-                  password: ''
+                  oldPassword: '',
+                  newPassword: '',
+                  confirmPassword: ''
                 });
                 setIsEditModalOpen(true);
               }}
-              className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              className="px-3 py-1.5 text-sm font-medium text-[#0f766e] bg-white hover:bg-gray-100 rounded-lg transition shadow-sm cursor-pointer"
             >
               แก้ไขโปรไฟล์
             </button>
             <button
+              type="button"
               onClick={() => setShowLogoutModal(true)}
               className="bg-red-500/80 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
             >
@@ -319,13 +378,6 @@ export default function StudentDashboard() {
           </div>
         </div>
       </header>
-
-      {/* 2. Navigation Bar */}
-      <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto">
-        <div className="max-w-4xl mx-auto flex items-center justify-start gap-1 min-w-max py-2 text-white font-bold text-xs">
-          <span className="px-3 py-1 bg-white/20 rounded-lg">หน้าหลักนักศึกษา</span>
-        </div>
-      </nav>
 
       {/* 3. Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8">
@@ -336,11 +388,15 @@ export default function StudentDashboard() {
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
               <div>
                 <h3 className="font-bold text-amber-800 text-sm">ยังไม่ได้ลงทะเบียนใบหน้า</h3>
-                <p className="text-amber-700 text-xs mt-0.5">กรุณาลงทะเบียนใบหน้าเพื่อใช้งานระบบเช็คชื่ออัตโนมัติ</p>
+                <p className="text-amber-700 text-xs mt-0.5">กรุณาลงทะเบียนใบหน้าเพื่อใช้งานระบบตรวจสอบชื่อด้วยการรู้จำใบหน้า</p>
               </div>
-              <Link className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all whitespace-nowrap" href="/student/face-enrollment">
+              <button
+                type="button"
+                onClick={() => handleOpenConsent('/student/face-enrollment')}
+                className="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all whitespace-nowrap cursor-pointer"
+              >
                 ลงทะเบียนเดี๋ยวนี้
-              </Link>
+              </button>
             </div>
           </div>
         )}
@@ -352,7 +408,7 @@ export default function StudentDashboard() {
           <form onSubmit={handleJoinClick} className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
-              placeholder="กรอกรหัส JOIN CODE 6 หลัก (เช่น PNW11W)"
+              placeholder="กรอกรหัส JOIN CODE 6 หลัก"
               required
               maxLength={10}
               className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-mono font-bold text-slate-700 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
@@ -403,7 +459,7 @@ export default function StudentDashboard() {
         </div>
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
+      {/* 4. Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
@@ -438,9 +494,16 @@ export default function StudentDashboard() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Link className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-all text-center" href="/student/face-enrollment">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNoFaceJoinModal(false);
+                  handleOpenConsent('/student/face-enrollment');
+                }}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-all text-center cursor-pointer"
+              >
                 ลงทะเบียนใบหน้าก่อน
-              </Link>
+              </button>
 
               <div className="flex gap-2">
                 <button
@@ -547,7 +610,7 @@ export default function StudentDashboard() {
       {/* Modal แก้ไขข้อมูลส่วนตัว */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 md:p-8 w-full max-w-md shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl p-6 md:p-8 w-full max-w-md shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-black mb-5 text-slate-800">จัดการข้อมูลส่วนตัว</h2>
             <form onSubmit={handleUpdateProfile} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -573,23 +636,56 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">รหัสผ่านใหม่</label>
-                <input
-                  type="password"
-                  placeholder="ปล่อยว่างถ้าไม่ต้องการเปลี่ยน"
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  value={editData.password}
-                  onChange={(e) => setEditData({ ...editData, password: e.target.value })}
-                />
+              <div className="space-y-3 pt-3 border-t border-slate-100">
+                <h4 className="text-xs font-bold text-slate-700">เปลี่ยนรหัสผ่าน (กรอกเมื่อต้องการเปลี่ยน)</h4>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">รหัสผ่านเดิม</label>
+                  <input
+                    type="password"
+                    placeholder="กรอกรหัสผ่านเดิม"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.oldPassword}
+                    onChange={(e) => setEditData({ ...editData, oldPassword: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">รหัสผ่านใหม่</label>
+                  <input
+                    type="password"
+                    placeholder="กรอกรหัสผ่านใหม่"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.newPassword}
+                    onChange={(e) => setEditData({ ...editData, newPassword: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ยืนยันรหัสผ่านใหม่</label>
+                  <input
+                    type="password"
+                    placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.confirmPassword}
+                    onChange={(e) => setEditData({ ...editData, confirmPassword: e.target.value })}
+                  />
+                </div>
               </div>
 
               <div className="pt-3 border-t border-slate-100">
                 <label className="block text-xs font-bold text-emerald-700 mb-1">โมเดลใบหน้า (Face Scan)</label>
                 <p className="text-[11px] text-slate-500 mb-3 font-medium">สามารถอัปเดตใบหน้าใหม่ได้ หากระบบสแกนเดิมมีปัญหา</p>
-                <Link className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-all" href="/student/re-enroll">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditModalOpen(false);
+                    handleOpenConsent('/student/re-enroll');
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-all cursor-pointer"
+                >
                   อัปเดตใบหน้าใหม่
-                </Link>
+                </button>
               </div>
 
               <div className="flex gap-3 pt-3">
@@ -599,6 +695,57 @@ export default function StudentDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal ป๊อบอัปขอความยินยอม (PDPA Consent Modal) ก่อนไปหน้าลงทะเบียนใบหน้า */}
+      {showConsentModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[90] animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            <div className="text-center mb-4">
+              <h3 className="text-xl font-black text-slate-800">หนังสือแสดงความยินยอมในการเก็บข้อมูลใบหน้า</h3>
+              <p className="text-xs text-slate-400 mt-1">ข้อกำหนดการจัดเก็บข้อมูลชีวมิติ (Biometric Data)</p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-600 overflow-y-auto mb-4 border border-slate-200/60 space-y-2 leading-relaxed">
+              <p><strong>1. วัตถุประสงค์:</strong> ระบบจะทำการจัดเก็บโครงสร้างใบหน้า (Face Vectors) ของท่านเพื่อใช้ในการตรวจสอบและบันทึกเวลาเรียนอัตโนมัติภายในรายวิชาที่ท่านเข้าร่วมเท่านั้น</p>
+              <p><strong>2. ความปลอดภัย:</strong> ข้อมูลภาพและโครงสร้างใบหน้าจะถูกเก็บรักษาความปลอดภัยอย่างเข้มงวด และไม่ถูกนำไปใช้ในเชิงพาณิชย์ หรือเปิดเผยต่อบุคคลภายนอกโดยไม่ได้รับอนุญาต</p>
+              <p><strong>3. สิทธิ์ของผู้ใช้งาน:</strong> ท่านมีสิทธิ์ในการปฏิเสธการให้ความยินยอมได้ โดยระบบจะไม่ทำการเก็บข้อมูลใบหน้า ซึ่งจะทำให้ไม่สามารถใช้งานฟังก์ชันเช็คชื่อด้วยใบหน้าอัตโนมัติได้ (แต่ท่านยังคงสามารถใช้งานระบบส่วนอื่นๆ ในการเข้าร่วมชั้นเรียนได้ตามปกติ)</p>
+            </div>
+
+            <label className="flex items-start space-x-3 cursor-pointer mb-6 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
+              <input
+                type="checkbox"
+                checked={consented}
+                onChange={(e) => setConsented(e.target.checked)}
+                className="mt-0.5 w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+              />
+              <span className="text-xs text-slate-700 font-medium select-none">
+                ข้าพเจ้าได้อ่านและเข้าใจข้อกำหนดข้างต้น และยินยอมให้ระบบจัดเก็บและใช้ข้อมูลภาพใบหน้าเพื่อใช้ในการเช็คชื่อ
+              </span>
+            </label>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConsentModal(false);
+                  setConsented(false);
+                }}
+                className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={!consented}
+                onClick={handleProceedEnroll}
+                className="flex-[2] py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                ยอมรับและไปต่อ
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -629,9 +776,8 @@ export default function StudentDashboard() {
             <button
               type="button"
               onClick={handleCloseAlertModal}
-              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
-                alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
-              }`}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
+                }`}
             >
               ตกลง
             </button>

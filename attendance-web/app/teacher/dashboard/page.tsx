@@ -25,12 +25,14 @@ export default function TeacherDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  // State สำหรับแก้ไขโปรไฟล์
+  // State สำหรับแก้ไขโปรไฟล์ (เพิ่ม oldPassword, newPassword, confirmPassword)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editData, setEditData] = useState({
     firstName: "",
     lastName: "",
-    password: "",
+    oldPassword: "",
+    newPassword: "",
+    confirmPassword: "",
   });
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -164,7 +166,9 @@ export default function TeacherDashboard() {
     setEditData({
       firstName: teacherInfo?.firstName || "",
       lastName: teacherInfo?.lastName || "",
-      password: "",
+      oldPassword: "",
+      newPassword: "",
+      confirmPassword: "",
     });
     setIsEditModalOpen(true);
   };
@@ -180,6 +184,39 @@ export default function TeacherDashboard() {
       });
       return;
     }
+
+    // ตรวจสอบความถูกต้องของการเปลี่ยนรหัสผ่าน
+    const isChangingPassword = editData.newPassword || editData.oldPassword || editData.confirmPassword;
+    if (isChangingPassword) {
+      if (!editData.oldPassword) {
+        setAlertModal({
+          show: true,
+          title: "ข้อมูลไม่ครบถ้วน",
+          message: "กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน",
+          isSuccess: false,
+        });
+        return;
+      }
+      if (!editData.newPassword) {
+        setAlertModal({
+          show: true,
+          title: "ข้อมูลไม่ครบถ้วน",
+          message: "กรุณากรอกรหัสผ่านใหม่",
+          isSuccess: false,
+        });
+        return;
+      }
+      if (editData.newPassword !== editData.confirmPassword) {
+        setAlertModal({
+          show: true,
+          title: "รหัสผ่านไม่ตรงกัน",
+          message: "รหัสผ่านใหม่และยืนยันรหัสผ่านใหม่ไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง",
+          isSuccess: false,
+        });
+        return;
+      }
+    }
+
     setShowProfileConfirmModal(true);
   };
 
@@ -207,7 +244,8 @@ export default function TeacherDashboard() {
           id: teacherInfo.id,
           firstName: editData.firstName,
           lastName: editData.lastName,
-          password: editData.password,
+          oldPassword: editData.oldPassword,
+          password: editData.newPassword,
         }),
       });
 
@@ -217,7 +255,7 @@ export default function TeacherDashboard() {
         setShowProfileConfirmModal(false);
         setIsEditModalOpen(false);
 
-        if (editData.password && editData.password.length > 0) {
+        if (editData.newPassword && editData.newPassword.length > 0) {
           setAlertModal({
             show: true,
             title: "เปลี่ยนรหัสผ่านสำเร็จ",
@@ -411,7 +449,7 @@ export default function TeacherDashboard() {
             <button
               type="button"
               onClick={handleOpenEditModal}
-              className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer"
+              className="px-3 py-1.5 text-sm font-medium text-[#0f766e] bg-white hover:bg-gray-100 rounded-lg transition shadow-sm"
             >
               แก้ไขโปรไฟล์
             </button>
@@ -772,10 +810,10 @@ export default function TeacherDashboard() {
         </div>
       )}
 
-      {/* Modal: ตั้งค่าโปรไฟล์ */}
+      {/* Modal: ตั้งค่าโปรไฟล์ (ปรับปรุงช่องเปลี่ยนรหัสผ่านให้ครบ 3 ช่อง) */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-black text-slate-800 mb-5">
               ตั้งค่าโปรไฟล์
             </h2>
@@ -813,19 +851,42 @@ export default function TeacherDashboard() {
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-slate-100">
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  เปลี่ยนรหัสผ่าน (เว้นว่างไว้หากไม่เปลี่ยน)
-                </label>
-                <input
-                  type="password"
-                  value={editData.password}
-                  onChange={(e) =>
-                    setEditData({ ...editData, password: e.target.value })
-                  }
-                  placeholder="รหัสผ่านใหม่"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
+              {/* ส่วนเปลี่ยนรหัสผ่านแบบครบถ้วน 3 ช่อง */}
+              <div className="space-y-3 pt-3 border-t border-slate-100">
+                <h4 className="text-xs font-bold text-slate-700">เปลี่ยนรหัสผ่าน (กรอกเมื่อต้องการเปลี่ยน)</h4>
+                
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">รหัสผ่านเดิม</label>
+                  <input
+                    type="password"
+                    placeholder="กรอกรหัสผ่านเดิม"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.oldPassword}
+                    onChange={(e) => setEditData({ ...editData, oldPassword: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">รหัสผ่านใหม่</label>
+                  <input
+                    type="password"
+                    placeholder="กรอกรหัสผ่านใหม่"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.newPassword}
+                    onChange={(e) => setEditData({ ...editData, newPassword: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ยืนยันรหัสผ่านใหม่</label>
+                  <input
+                    type="password"
+                    placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    value={editData.confirmPassword}
+                    onChange={(e) => setEditData({ ...editData, confirmPassword: e.target.value })}
+                  />
+                </div>
               </div>
 
               <div className="flex gap-3 mt-6 pt-2">
@@ -871,9 +932,9 @@ export default function TeacherDashboard() {
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">รหัสผ่าน:</span>
                 <span
-                  className={`font-bold ${editData.password ? "text-amber-700" : "text-slate-400"}`}
+                  className={`font-bold ${editData.newPassword ? "text-amber-700" : "text-slate-400"}`}
                 >
-                  {editData.password
+                  {editData.newPassword
                     ? "เปลี่ยนรหัสผ่านใหม่ (ต้องเข้าสู่ระบบใหม่)"
                     : "ใช้รหัสผ่านเดิม"}
                 </span>

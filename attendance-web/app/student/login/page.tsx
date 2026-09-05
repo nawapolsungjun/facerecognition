@@ -46,7 +46,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
-      
+
       {/* 1. Header ด้านบนตาม Style ระบบ */}
       <header className="bg-[#0f766e] text-white pt-10 pb-8 px-4 text-center shadow-sm">
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2">
@@ -60,7 +60,7 @@ export default function LoginPage() {
       {/* 2. Main Content Card ฟอร์มเข้าสู่ระบบนักศึกษา */}
       <main className="flex-1 max-w-md w-full mx-auto p-4 md:py-12 flex flex-col justify-center">
         <form onSubmit={handleLogin} className="bg-white p-6 md:p-8 rounded-3xl shadow-lg border border-slate-100 w-full animate-in zoom-in-95 duration-200">
-          
+
           <div className="text-center mb-6 pb-5 border-b border-slate-100">
             <div className="inline-flex items-center justify-center p-3.5 bg-emerald-50 text-emerald-700 rounded-2xl mb-3 border border-emerald-100 shadow-2xs">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
@@ -74,11 +74,10 @@ export default function LoginPage() {
           </div>
 
           {status && (
-            <div className={`p-3.5 rounded-xl mb-5 text-xs font-bold border text-center animate-shake ${
-              status.includes('สำเร็จ') 
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                : 'bg-red-50 text-red-600 border-red-100'
-            }`}>
+            <div className={`p-3.5 rounded-xl mb-5 text-xs font-bold border text-center animate-shake ${status.includes('สำเร็จ')
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+              : 'bg-red-50 text-red-600 border-red-100'
+              }`}>
               {status}
             </div>
           )}
@@ -106,6 +105,13 @@ export default function LoginPage() {
                 value={formData.password}
                 onChange={e => setFormData({ ...formData, password: e.target.value })}
               />
+            </div>
+            {/* ตัวอย่างบริเวณใต้ช่องกรอกรหัสผ่าน หรือใต้ปุ่มเข้าสู่ระบบ */}
+            <div className="flex items-center justify-between text-sm mt-2 mb-4">
+              <span></span> {/* ดันข้อความไปขวา */}
+              <Link href="/forgot-password?role=student" className="text-[#0f766e] hover:underline">
+                ลืมรหัสผ่าน?
+              </Link>
             </div>
           </div>
 
