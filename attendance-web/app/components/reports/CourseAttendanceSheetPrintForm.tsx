@@ -107,7 +107,8 @@ export default function CourseAttendanceSheetPrintForm({
             <tr className="no-border-row">
               <th colSpan={totalWeeks + 8} className="p-0 font-normal text-left pb-2.5 no-border-cell">
                 <div className="border border-black p-2 bg-slate-50/20 text-[11.5px]">
-                  <div className="flex justify-between items-center mb-1">
+                  {/* ปรับเพิ่ม กลุ่มเรียน และ ภาคเรียน/ปีการศึกษา ตรงนี้ */}
+                  <div className="flex justify-between items-center mb-1.5">
                     <div>
                       <span className="font-bold">รหัสวิชา: </span>
                       <span className="font-mono font-bold">{courseInfo.courseCode}</span>
@@ -117,19 +118,27 @@ export default function CourseAttendanceSheetPrintForm({
                       <span>{courseInfo.courseName}</span>
                     </div>
                     <div>
-                      <span className="font-bold">ผู้สอน: </span>
-                      <span>{courseInfo.teacherName || 'อาจารย์ประจำวิชา'}</span>
+                      <span className="font-bold">กลุ่มเรียน: </span>
+                      <span>{courseInfo.section || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold">ภาคเรียน: </span>
+                      <span>{courseInfo.semester || '-'}/{courseInfo.academicYear || '-'}</span>
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center border-t border-slate-300 pt-1 text-[11px] text-slate-700">
+                  <div className="flex justify-between items-center border-t border-slate-300 pt-1.5 text-[11px] text-slate-800">
+                    <div>
+                      <span className="font-bold">ผู้สอน: </span>
+                      <span>{courseInfo.teacherName || 'อาจารย์ประจำวิชา'}</span>
+                    </div>
                     <div>
                       <span className="font-bold">วัน-เวลาเรียน: </span>
                       <span>{courseInfo.studyTime || 'ตามตารางสอนประจำภาคการศึกษา'}</span>
                     </div>
                     <div>
                       <span className="font-bold">จำนวนนักศึกษาทั้งหมด: </span>
-                      <span className="font-bold font-mono">{sortedStudents.length}</span> คน
+                      <span className="font-bold font-mono text-sm">{sortedStudents.length}</span> คน
                     </div>
                   </div>
                 </div>

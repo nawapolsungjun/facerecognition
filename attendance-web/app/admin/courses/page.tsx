@@ -1,3 +1,4 @@
+// attendance-web/app/admin/courses/page.tsx
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
@@ -9,7 +10,16 @@ export default function AdminCourseManagementPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [newCourse, setNewCourse] = useState({ code: '', name: '', teacherId: '' });
+  
+  // เพิ่ม field: section, semester, academicYear ลงใน state เริ่มต้น
+  const [newCourse, setNewCourse] = useState({ 
+    code: '', 
+    name: '', 
+    teacherId: '',
+    section: '1',
+    semester: '1',
+    academicYear: '2569'
+  });
 
   const [showCreateConfirmModal, setShowCreateConfirmModal] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -49,11 +59,12 @@ export default function AdminCourseManagementPage() {
 
   const handleOpenCreateConfirm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCourse.code.trim() || !newCourse.name.trim() || !newCourse.teacherId) {
+    // เพิ่มการตรวจสอบความครบถ้วนของข้อมูลใหม่
+    if (!newCourse.code.trim() || !newCourse.name.trim() || !newCourse.teacherId || !newCourse.section.trim() || !newCourse.academicYear.trim()) {
       setAlertModal({
         show: true,
         title: 'ข้อมูลไม่ครบถ้วน',
-        message: 'กรุณากรอกข้อมูลและเลือกอาจารย์ผู้สอนให้ครบถ้วน',
+        message: 'กรุณากรอกข้อมูลรายวิชาและเลือกผู้สอนให้ครบถ้วน',
         isSuccess: false,
       });
       return;
@@ -70,19 +81,23 @@ export default function AdminCourseManagementPage() {
         body: JSON.stringify({
           courseCode: newCourse.code.trim(),
           courseName: newCourse.name.trim(),
-          teacherId: newCourse.teacherId
+          teacherId: newCourse.teacherId,
+          section: newCourse.section.trim(),
+          semester: newCourse.semester.trim(),
+          academicYear: newCourse.academicYear.trim()
         })
       });
       const data = await res.json();
       if (data.success) {
         setShowCreateConfirmModal(false);
         setIsModalOpen(false);
-        setNewCourse({ code: '', name: '', teacherId: '' });
+        // Reset state กลับเป็นค่าตั้งต้น
+        setNewCourse({ code: '', name: '', teacherId: '', section: '1', semester: '1', academicYear: '2569' });
         fetchInitialData();
         setAlertModal({
           show: true,
           title: 'สร้างรายวิชาสำเร็จ',
-          message: 'สร้างรายวิชาใหม่เรียบร้อยแล้ว',
+          message: data.message || 'สร้างรายวิชาใหม่เรียบร้อยแล้ว',
           isSuccess: true,
         });
       } else {
@@ -194,8 +209,8 @@ export default function AdminCourseManagementPage() {
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200/60">
                   <th className="p-4 text-xs font-bold text-slate-600 w-16 text-center">ลำดับ</th>
-                  <th className="p-4 text-xs font-bold text-slate-600 w-32">รหัสวิชา</th>
-                  <th className="p-4 text-xs font-bold text-slate-600">ชื่อรายวิชา</th>
+                  <th className="p-4 text-xs font-bold text-slate-600 w-40">รหัสวิชา</th>
+                  <th className="p-4 text-xs font-bold text-slate-600">ชื่อรายวิชา / ข้อมูลชั้นเรียน</th>
                   <th className="p-4 text-xs font-bold text-slate-600">อาจารย์ผู้สอน</th>
                   <th className="p-4 text-xs font-bold text-slate-600 text-center w-40">จัดการ</th>
                 </tr>
@@ -214,18 +229,27 @@ export default function AdminCourseManagementPage() {
                     <td className="p-4 text-xs font-bold text-slate-400 text-center">
                       {idx + 1}
                     </td>
-                    <td className="p-4 font-mono font-bold text-emerald-700 text-xs md:text-sm">
-                      {course.courseCode}
+                    <td className="p-4">
+                      <div className="font-mono font-bold text-emerald-700 text-xs md:text-sm">
+                        {course.courseCode}
+                      </div>
+                      {/* แสดงรหัส Join Code ตรงนี้ */}
+                      <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 bg-slate-100 border border-slate-200 rounded-md text-[10px] font-bold text-slate-600">
+                        <span>Join:</span>
+                        <span className="font-mono text-emerald-600 tracking-wider uppercase select-all">{course.joinCode || '-'}</span>
+                      </div>
                     </td>
                     <td className="p-4">
                       <Link
                         href={`/admin/courses/${course.id}/students`}
                         className="font-bold text-slate-800 hover:text-emerald-700 transition-colors text-xs md:text-sm inline-block"
                       >
-                        {course.courseName}
+                        {course.courseName} <span className="font-medium text-slate-500 text-xs ml-1">(กลุ่ม {course.section})</span>
                       </Link>
-                      <div className="text-[11px] text-slate-400 mt-0.5 font-medium">
-                        นักศึกษาในชั้นเรียน: {course._count?.students || 0} คน
+                      <div className="text-[11px] text-slate-500 mt-1 font-medium flex gap-3">
+                        <span>เทอม {course.semester}/{course.academicYear}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>นักศึกษา: {course._count?.students || 0} คน</span>
                       </div>
                     </td>
                     <td className="p-4 text-xs font-medium text-slate-700">
@@ -298,32 +322,72 @@ export default function AdminCourseManagementPage() {
       {/* Modal สร้างรายวิชาใหม่ */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 md:p-8 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <h2 className="text-xl font-black text-slate-800 mb-5">สร้างรายวิชาใหม่ (Admin)</h2>
 
             <form onSubmit={handleOpenCreateConfirm} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">รหัสวิชา</label>
-                <input
-                  required
-                  type="text"
-                  value={newCourse.code}
-                  onChange={(e) => setNewCourse({ ...newCourse, code: e.target.value })}
-                  placeholder="เช่น IT-302"
-                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">รหัสวิชา</label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.code}
+                    onChange={(e) => setNewCourse({ ...newCourse, code: e.target.value })}
+                    placeholder="เช่น 5141319"
+                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">ชื่อวิชา</label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.name}
+                    onChange={(e) => setNewCourse({ ...newCourse, name: e.target.value })}
+                    placeholder="เช่น สัมมนาทางเทคโนโลยี"
+                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">ชื่อวิชา</label>
-                <input
-                  required
-                  type="text"
-                  value={newCourse.name}
-                  onChange={(e) => setNewCourse({ ...newCourse, name: e.target.value })}
-                  placeholder="เช่น Image Processing AI"
-                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-                />
+              {/* Grid 3 ช่องสำหรับ กลุ่มเรียน เทอม ปีการศึกษา */}
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/60">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">กลุ่มเรียน (Section)</label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.section}
+                    onChange={(e) => setNewCourse({ ...newCourse, section: e.target.value })}
+                    placeholder="เช่น 1, 2, วส.67"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ภาคเรียน (Semester)</label>
+                  <select
+                    required
+                    value={newCourse.semester}
+                    onChange={(e) => setNewCourse({ ...newCourse, semester: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="1">เทอม 1</option>
+                    <option value="2">เทอม 2</option>
+                    <option value="3">เทอม 3 (ซัมเมอร์)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ปีการศึกษา</label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.academicYear}
+                    onChange={(e) => setNewCourse({ ...newCourse, academicYear: e.target.value })}
+                    placeholder="เช่น 2569"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               <div>
@@ -382,6 +446,14 @@ export default function AdminCourseManagementPage() {
                 <span className="font-bold text-slate-800">{newCourse.name.trim()}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">กลุ่มเรียน:</span>
+                <span className="font-bold text-slate-700">{newCourse.section.trim()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">ปีการศึกษา:</span>
+                <span className="font-bold text-slate-700">{newCourse.semester.trim()}/{newCourse.academicYear.trim()}</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-slate-200">
                 <span className="text-slate-400 font-bold">อาจารย์ผู้สอน:</span>
                 <span className="font-bold text-slate-700">{selectedTeacherObj?.name || '-'}</span>
               </div>
@@ -409,7 +481,7 @@ export default function AdminCourseManagementPage() {
         </div>
       )}
 
-      {/* Modal Popup: ยืนยันการลบรายวิชา */}
+      {/* Modal Popup: ยืนยันการลบรายวิชา (คงเดิม) */}
       {courseToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
@@ -439,7 +511,7 @@ export default function AdminCourseManagementPage() {
         </div>
       )}
 
-      {/* Custom Alert Modal */}
+      {/* Custom Alert Modal (คงเดิม) */}
       {alertModal.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">

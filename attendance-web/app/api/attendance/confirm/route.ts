@@ -17,7 +17,7 @@ export async function POST(request: Request) {
       imageUrls,
       imageUrl,
       attendanceData,
-      detectedNames,
+      detectedNames, // (ไม่ได้ใช้บันทึกตรงๆ แต่รับมาได้)
       note,
       sessionNote,
       round,
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
       ? `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber}) - ${customRemark}`
       : `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber})`;
 
-    // 5. สร้าง Map สถานะนักศึกษา
+    // 5. สร้าง Map สถานะนักศึกษา (รับ "รอตรวจสอบ" มาจาก Frontend)
     const statusMap = new Map<string, { status: string; remark?: string }>();
     if (Array.isArray(attendanceData)) {
       attendanceData.forEach((item: any) => {
@@ -119,16 +119,20 @@ export async function POST(request: Request) {
     // 6. บันทึกลงฐานข้อมูล
     const result = await prisma.$transaction(
       async (tx) => {
+        // สร้างรอบการเช็คชื่อหลัก (AttendanceSession)
         const newSession = await tx.attendanceSession.create({
           data: {
             courseId: courseId,
             roundNumber: currentRoundNumber,
-            imageUrl: finalImageUrl, // บันทึกเป็น /uploads/session_xxxx.jpg
+            imageUrl: finalImageUrl,
             note: defaultSessionNote,
+            timeSlot: currentSlot,       // ✅ เพิ่มบันทึกเวลาคาบเรียน
+            sessionType: currentType,    // ✅ เพิ่มบันทึกประเภทคาบเรียน (ปกติ/ชดเชย)
             createdAt: sessionDate,
           },
         });
 
+        // สร้างประวัติของนักศึกษาแต่ละคน (Attendance)
         const attendanceRecords = course.students.map((student: any) => {
           const evaluated = statusMap.get(String(student.id));
           const finalStatus = evaluated ? evaluated.status : 'ขาดเรียน';

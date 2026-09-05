@@ -137,7 +137,7 @@ export default function AdminCoursesReportPage() {
             </div>
           </div>
 
-          {/* ตารางแสดงรายงาน (เพิ่มคลาส overflow-x-hidden หรือปรับแต่งจัดการการแสดงผล) */}
+          {/* ตารางแสดงรายงาน */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
             <div className="w-full overflow-x-auto">
               <table className="w-full text-left border-collapse table-auto">
@@ -156,7 +156,7 @@ export default function AdminCoursesReportPage() {
                         </span>
                       </div>
                     </th>
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600">ชื่อรายวิชา</th>
+                    <th className="py-4 px-3 text-xs font-bold text-slate-600">ชื่อรายวิชา / ข้อมูลกลุ่ม</th>
                     <th className="py-4 px-3 text-xs font-bold text-slate-600 w-36 whitespace-nowrap">อาจารย์ผู้สอน</th>
                     <th className="py-4 px-3 text-xs font-bold text-slate-600 text-center w-16 whitespace-nowrap">นศ.</th>
                     <th className="py-4 px-3 text-xs font-bold text-slate-600 text-center w-44 whitespace-nowrap">สรุปการเข้าเรียน</th>
@@ -189,9 +189,16 @@ export default function AdminCoursesReportPage() {
                           {item.courseCode}
                         </td>
 
-                        {/* ชื่อรายวิชา */}
-                        <td className="py-4 px-3 font-bold text-slate-800 text-xs">
-                          {item.courseName}
+                        {/* ชื่อรายวิชา พร้อมกลุ่มและเทอม */}
+                        <td className="py-4 px-3">
+                          <div className="font-bold text-slate-800 text-xs">
+                            {item.courseName}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 font-medium flex gap-2">
+                            <span>กลุ่ม {item.section || '1'}</span>
+                            <span>•</span>
+                            <span>เทอม {item.semester || '1'}/{item.academicYear || '2569'}</span>
+                          </div>
                         </td>
 
                         {/* อาจารย์ผู้สอน */}

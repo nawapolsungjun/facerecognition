@@ -1,3 +1,4 @@
+// attendance-web/app/api/student/join/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
@@ -6,11 +7,11 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { studentId, courseCode } = body;
+    const { studentId, joinCode } = body;
 
-    if (!studentId || !courseCode) {
+    if (!studentId || !joinCode) {
       return NextResponse.json(
-        { success: false, error: 'กรุณากรอกข้อมูลให้ครบถ้วน (studentId และ courseCode)' },
+        { success: false, error: 'กรุณากรอกข้อมูลให้ครบถ้วน (studentId และ joinCode)' },
         { status: 400 }
       );
     }
@@ -35,10 +36,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. ค้นหารายวิชาจาก courseCode
+    // 2. ค้นหารายวิชาจาก joinCode (แปลงเป็นตัวพิมพ์ใหญ่เสมอ)
     const course = await prisma.course.findUnique({
       where: { 
-        courseCode: String(courseCode).trim() 
+        joinCode: String(joinCode).trim().toUpperCase() 
       },
       include: {
         students: {
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
 
     if (!course) {
       return NextResponse.json(
-        { success: false, error: 'ไม่พบรายวิชานี้ในระบบ (โปรดตรวจสอบรหัสวิชาอีกครั้ง)' },
+        { success: false, error: 'ไม่พบรายวิชาจากรหัส Join Code นี้ (โปรดตรวจสอบรหัสอีกครั้ง)' },
         { status: 404 }
       );
     }

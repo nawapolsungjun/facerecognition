@@ -26,7 +26,15 @@ export default function AttendancePage() {
   const router = useRouter();
   const courseId = params.id as string;
 
-  const [courseInfo, setCourseInfo] = useState<{ courseName: string; courseCode: string } | null>(null);
+  const [courseInfo, setCourseInfo] = useState<{
+    courseName: string;
+    courseCode: string;
+    section?: string;
+    semester?: string;
+    academicYear?: string;
+    joinCode?: string;
+  } | null>(null);
+
   const [courseStudents, setCourseStudents] = useState<StudentInCourse[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
@@ -54,7 +62,7 @@ export default function AttendancePage() {
   const [previousRoundAttendance, setPreviousRoundAttendance] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [allDateSessions, setAllDateSessions] = useState<any[]>([]);
-  const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | 'มาเรียน' | 'มาสาย' | 'ขาดเรียน'>('ทั้งหมด');
+  const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน'>('ทั้งหมด');
   const [zoomedImageIdx, setZoomedImageIdx] = useState<number | null>(null);
 
   const [alertModal, setAlertModal] = useState<{
@@ -95,7 +103,11 @@ export default function AttendancePage() {
       if (courseJson.success && courseJson.data) {
         setCourseInfo({
           courseName: courseJson.data.courseName,
-          courseCode: courseJson.data.courseCode
+          courseCode: courseJson.data.courseCode,
+          section: courseJson.data.section,
+          semester: courseJson.data.semester,
+          academicYear: courseJson.data.academicYear,
+          joinCode: courseJson.data.joinCode
         });
         if (courseJson.data.students) {
           const sorted = [...courseJson.data.students].sort((a, b) =>
@@ -111,7 +123,7 @@ export default function AttendancePage() {
       ).catch(() => null);
 
       let recordedRoundsCount = 0;
-      let existingSessionData: any[] = [];
+      let allPreviousRecords: any[] = [];
       let foundTimeSlot = '';
       let rawSessionsList: any[] = [];
 
@@ -140,8 +152,8 @@ export default function AttendancePage() {
 
           recordedRoundsCount = matchedSessions.length;
           if (matchedSessions.length > 0) {
+            allPreviousRecords = matchedSessions;
             const latest = matchedSessions[matchedSessions.length - 1];
-            existingSessionData = latest.records || latest.attendances || [];
             foundTimeSlot = latest.timeSlot;
           }
         }
@@ -159,16 +171,9 @@ export default function AttendancePage() {
         else if (slotMode === 'SPECIAL') { setStartTime('17:00'); setEndTime('20:00'); }
       }
 
-      if (recordedRoundsCount >= 2) {
-        setDailyRoundNumber(3);
-        setPreviousRoundAttendance(existingSessionData);
-      } else if (recordedRoundsCount === 1) {
-        setDailyRoundNumber(2);
-        setPreviousRoundAttendance(existingSessionData);
-      } else {
-        setDailyRoundNumber(1);
-        setPreviousRoundAttendance([]);
-      }
+      setDailyRoundNumber(recordedRoundsCount + 1);
+      setPreviousRoundAttendance(allPreviousRecords);
+
     } catch (err) {
       console.error('Fetch initial data error:', err);
     }
@@ -198,6 +203,9 @@ export default function AttendancePage() {
       fetchInitialData();
     }
   }, [courseId, fetchInitialData]);
+
+  // ตัวแปรเช็คการเกินขีดจำกัด (จำกัด 3 รอบ)
+  const isRoundLimitReached = dailyRoundNumber > 3;
 
   const timeSlotConflict = useMemo(() => {
     const currentSlotStr = `${startTime}-${endTime}`;
@@ -244,12 +252,12 @@ export default function AttendancePage() {
   const drawBoxes = (image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
     const displayWidth = image.clientWidth;
     const displayHeight = image.clientHeight;
-    
+
     if (displayWidth === 0 || displayHeight === 0) return;
 
     canvas.width = displayWidth;
     canvas.height = displayHeight;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -260,7 +268,7 @@ export default function AttendancePage() {
     boxes.forEach((box, index) => {
       const name = matches[index];
       const isMatched = name && name !== "Unknown";
-      
+
       const dx = box.x * scaleX;
       const dy = box.y * scaleY;
       const dw = box.width * scaleX;
@@ -269,7 +277,7 @@ export default function AttendancePage() {
       ctx.strokeStyle = isMatched ? '#10b981' : '#ef4444';
       ctx.lineWidth = 3;
       ctx.strokeRect(dx, dy, dw, dh);
-      
+
       ctx.font = 'bold 12px Arial';
       ctx.fillStyle = isMatched ? '#10b981' : '#ef4444';
       ctx.fillText(name || 'Unknown', dx, dy > 15 ? dy - 5 : dy + 15);
@@ -282,6 +290,16 @@ export default function AttendancePage() {
         show: true,
         title: 'ไม่สามารถสแกนได้',
         message: `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว กรุณาเลือกช่วงเวลาหรือประเภทคาบเรียนที่ถูกต้อง`,
+        isSuccess: false,
+      });
+      return;
+    }
+
+    if (isRoundLimitReached) {
+      setAlertModal({
+        show: true,
+        title: 'เกินขีดจำกัดการเช็คชื่อ',
+        message: `ในคาบเรียนนี้ได้มีการเช็คชื่อครบ 3 รอบแล้ว ไม่สามารถสแกนเพิ่มได้`,
         isSuccess: false,
       });
       return;
@@ -329,7 +347,7 @@ export default function AttendancePage() {
           });
 
           if (!response.ok) {
-             throw new Error('AI Server ประมวลผลรูปภาพไม่สำเร็จ');
+            throw new Error('AI Server ประมวลผลรูปภาพไม่สำเร็จ');
           }
 
           const apiResult = await response.json();
@@ -386,6 +404,7 @@ export default function AttendancePage() {
     }
   }, [zoomedImageIdx, renderZoomBoxes]);
 
+
   const attendanceEvaluationList = useMemo(() => {
     const cleanedDetected = detectedStudents.map(s => s.replace(/\s+/g, ' ').trim());
 
@@ -397,51 +416,46 @@ export default function AttendancePage() {
         (student.name && cleanedDetected.includes(student.name.trim())) ||
         (student.firstName && cleanedDetected.includes(student.firstName.trim()));
 
-      const prevRecord = previousRoundAttendance.find(
-        (p: any) => p.studentId === student.id || p.id === student.id || p.studentCode === student.studentCode
-      );
-
       const timeSlotStr = `[${startTime}-${endTime} น.] `;
       const customRemarkPrefix = sessionRemark ? `[${sessionRemark}] ` : '';
       const typePrefix = sessionType === 'COMPENSATION' ? '[สอนชดเชย] ' : '';
       const sessionPrefix = `${timeSlotStr}${typePrefix}${customRemarkPrefix}`;
-      
-      let finalStatus: 'มาเรียน' | 'มาสาย' | 'ขาดเรียน' = 'ขาดเรียน';
+
+      const patternArray: number[] = previousRoundAttendance.map((session: any) => {
+         const records = session.records || session.attendances || [];
+         const prevRecord = records.find((p: any) => p.studentId === student.id || p.id === student.id || p.studentCode === student.studentCode);
+         if (prevRecord && prevRecord.status !== 'ขาดเรียน' && prevRecord.status !== 'รอตรวจสอบ') {
+           return 1;
+         }
+         return 0;
+      });
+
+      patternArray.push(isDetectedInCurrentScan ? 1 : 0);
+      const patternStr = patternArray.join('');
+
+      let finalStatus: 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน' = 'ขาดเรียน';
       let autoRemark = '';
 
-      if (dailyRoundNumber === 1) {
-        if (isDetectedInCurrentScan) {
-          finalStatus = 'มาเรียน';
-          autoRemark = `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1`;
-        } else {
-          finalStatus = 'ขาดเรียน';
-          autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อรอบที่ 1`;
-        }
-      } else if (dailyRoundNumber === 2) {
-        if (prevRecord?.status === 'มาเรียน') {
-          finalStatus = 'มาเรียน';
-          autoRemark = prevRecord.remark || `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1`;
-        } else if (isDetectedInCurrentScan) {
-          finalStatus = 'มาสาย';
-          autoRemark = `${sessionPrefix}เช็คชื่อรอบที่ 2`;
-        } else {
-          finalStatus = 'ขาดเรียน';
-          autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อทั้งสองรอบ`;
-        }
+      if (patternArray.length === 3) {
+        if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
+        else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
+        else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
+        else finalStatus = 'ขาดเรียน';
+      } 
+      else if (patternArray.length === 2) {
+        if (patternStr === '11') finalStatus = 'มาเรียน';
+        else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
+        else if (patternStr === '01') finalStatus = 'มาสาย';
+        else finalStatus = 'ขาดเรียน';
+      } 
+      else if (patternArray.length === 1) {
+        finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
+      }
+
+      if (isDetectedInCurrentScan) {
+        autoRemark = `${sessionPrefix}ตรวจพบใบหน้าในรอบที่ ${dailyRoundNumber}`;
       } else {
-        if (prevRecord?.status === 'มาเรียน') {
-          finalStatus = 'มาเรียน';
-          autoRemark = prevRecord.remark || `${sessionPrefix}ตรวจพบในการเช็คชื่อรอบที่ 1`;
-        } else if (prevRecord?.status === 'มาสาย') {
-          finalStatus = 'มาสาย';
-          autoRemark = prevRecord.remark || `${sessionPrefix}เช็คชื่อรอบที่ 2`;
-        } else if (isDetectedInCurrentScan) {
-          finalStatus = 'มาสาย';
-          autoRemark = `${sessionPrefix}เช็คชื่อรอบเพิ่มเติม (เก็บตก)`;
-        } else {
-          finalStatus = 'ขาดเรียน';
-          autoRemark = `${sessionPrefix}ไม่พบในทุกรอบการเช็คชื่อ`;
-        }
+        autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อรอบที่ ${dailyRoundNumber}`;
       }
 
       return {
@@ -458,8 +472,9 @@ export default function AttendancePage() {
   const counts = useMemo(() => {
     const present = attendanceEvaluationList.filter(s => s.finalStatus === 'มาเรียน').length;
     const late = attendanceEvaluationList.filter(s => s.finalStatus === 'มาสาย').length;
+    const pending = attendanceEvaluationList.filter(s => s.finalStatus === 'รอตรวจสอบ').length;
     const absent = attendanceEvaluationList.filter(s => s.finalStatus === 'ขาดเรียน').length;
-    return { total: attendanceEvaluationList.length, present, late, absent };
+    return { total: attendanceEvaluationList.length, present, late, pending, absent };
   }, [attendanceEvaluationList]);
 
   const filteredAttendanceList = useMemo(() => {
@@ -469,7 +484,6 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันสร้างรูปภาพที่มีกรอบสีเขียว (ตรงคน) และกรอบสีแดง (Unknown) ฝังลงในภาพจริง
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
@@ -502,14 +516,11 @@ export default function AttendancePage() {
               return;
             }
 
-            // 1. วาดรูปภาพพื้นหลัง
             ctx.drawImage(img, 0, 0, w, h);
 
-            // 2. คำนวณอัตราส่วนสเกลจากภาพต้นฉบับ
             const scaleX = w / img.width;
             const scaleY = h / img.height;
 
-            // 3. วาดกรอบสแกนจริง (เขียว = พบตัวจริง, แดง = Unknown)
             if (Array.isArray(res.boxes) && res.boxes.length > 0) {
               res.boxes.forEach((box, bIdx) => {
                 const name = res.matches[bIdx];
@@ -524,7 +535,6 @@ export default function AttendancePage() {
                 ctx.lineWidth = Math.max(3, Math.round(w / 350));
                 ctx.strokeRect(dx, dy, dw, dh);
 
-                // ป้ายชื่อกำกับเหนือศีรษะ
                 const labelText = isMatched ? name : 'Unknown';
                 const fontSize = Math.max(14, Math.round(w / 65));
                 ctx.font = `bold ${fontSize}px sans-serif`;
@@ -561,6 +571,8 @@ export default function AttendancePage() {
       return;
     }
 
+    if (isRoundLimitReached) return;
+
     setIsSaving(true);
     setStatus('กำลังบันทึกข้อมูลเข้าเรียนและจัดเก็บภาพสแกน...');
     const token = getAuthToken();
@@ -572,7 +584,6 @@ export default function AttendancePage() {
         remark: item.remark
       }));
 
-      // สร้างรูปภาพที่ฝังกรอบและชื่อตรงกับผลการวิเคราะห์จริงเรียบร้อยแล้ว
       const imagesBase64WithBoxes = await generateImagesWithBurnedBoxes();
 
       const timeSlotStr = `${startTime}-${endTime}`;
@@ -600,7 +611,7 @@ export default function AttendancePage() {
 
       if (data.success) {
         setShowConfirmModal(false);
-        const roundTitle = dailyRoundNumber >= 3 ? 'รอบเพิ่มเติม' : `รอบที่ ${dailyRoundNumber}`;
+        const roundTitle = `รอบที่ ${dailyRoundNumber}`;
         const typeText = sessionType === 'COMPENSATION' ? '(คาบสอนชดเชย)' : '(คาบปกติ)';
         setAlertModal({
           show: true,
@@ -651,9 +662,11 @@ export default function AttendancePage() {
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          วิชา: <span className="font-bold text-white">{courseInfo?.courseCode || 'กำลังโหลด...'}</span>  <span className="text-white-200">{courseInfo?.courseName || 'กำลังโหลด...'}</span>
-        </p>
+        <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
+          <p>
+            วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
+          </p>
+        </div>
       </header>
 
       {/* Navigation Tabs Bar */}
@@ -705,7 +718,24 @@ export default function AttendancePage() {
                   พบช่วงเวลาการสอนชนกันในระบบ
                 </h4>
                 <p className="text-[11px] md:text-xs text-amber-700 mt-0.5 leading-relaxed">
-                  ช่วงเวลา <span className="font-mono font-bold text-amber-950">[{timeSlotConflict.timeSlot} น.]</span> ของวันที่เลือกนี้ เคยถูกบันทึกเป็น <span className="font-bold underline text-amber-950">&quot;{timeSlotConflict.conflictedTypeLabel}&quot;</span> ไว้แล้ว ไม่สามารถเลือกบันทึกเป็น &quot;{sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'}&quot; ในช่วงเวลาเดิมซ้ำได้ กรุณาสลับประเภทคาบเรียน หรือเปลี่ยนช่วงเวลาให้ถูกต้อง
+                  ช่วงเวลา <span className="font-mono font-bold text-amber-950">[{timeSlotConflict.timeSlot} น.]</span> ของวันที่เลือกนี้ เคยถูกบันทึกเป็น <span className="font-bold underline text-amber-950">&quot;{timeSlotConflict.conflictedTypeLabel}&quot;</span> ไว้แล้ว ไม่สามารถเลือกบันทึกซ้ำในช่วงเวลาเดิมได้
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* แจ้งเตือนการเกินขีดจำกัดจำนวนรอบ */}
+          {isRoundLimitReached && (
+            <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 flex items-start gap-3.5 animate-in fade-in duration-200">
+              <div className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center shrink-0 font-black text-sm">
+                !
+              </div>
+              <div className="flex-1">
+                <h4 className="text-xs md:text-sm font-black text-red-900">
+                  เกินขีดจำกัดการเช็คชื่อ
+                </h4>
+                <p className="text-[11px] md:text-xs text-red-700 mt-0.5 leading-relaxed">
+                  ช่วงเวลา <span className="font-mono font-bold text-red-950">[{startTime}-{endTime} น.]</span> ในคาบเรียนนี้มีการบันทึกการเช็คชื่อครบ <span className="font-bold">3 รอบ</span> แล้ว ไม่สามารถสแกนเพิ่มในคาบนี้ได้อีก
                 </p>
               </div>
             </div>
@@ -754,11 +784,10 @@ export default function AttendancePage() {
                   key={m.id}
                   type="button"
                   onClick={() => handleSlotChange(m.id as any)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    slotMode === m.id
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${slotMode === m.id
                       ? 'bg-[#0f766e] text-white shadow-sm'
                       : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
+                    }`}
                 >
                   {m.label}
                 </button>
@@ -826,11 +855,16 @@ export default function AttendancePage() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-xl border bg-slate-50 border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-700 block">
-                สถานะ: {dailyRoundNumber === 1 ? 'การเช็คชื่อรอบที่ 1 (เริ่มคาบ)' : dailyRoundNumber === 2 ? 'การเช็คชื่อรอบที่ 2 (ตรวจสาย)' : 'การเช็คชื่อรอบเพิ่มเติม (เก็บตก)'}
+                สถานะ: {
+                  dailyRoundNumber === 1 ? 'การเช็คชื่อรอบที่ 1 (เริ่มคาบ)' :
+                  dailyRoundNumber === 2 ? 'การเช็คชื่อรอบที่ 2' :
+                  dailyRoundNumber === 3 ? 'การเช็คชื่อรอบที่ 3 (รอบสุดท้าย)' :
+                  'เกินขีดจำกัด (ครบ 3 รอบแล้ว)'
+                }
               </span>
-              {dailyRoundNumber > 1 && (
+              {dailyRoundNumber > 1 && !isRoundLimitReached && (
                 <span className="text-[10px] text-emerald-600 font-bold mt-0.5 block">
-                  (พบประวัติรอบก่อนหน้า ระบบซิงค์เวลา {startTime}-{endTime} น. ให้อัตโนมัติ)
+                  (พบประวัติรอบก่อนหน้า ระบบเชื่อมโยงข้อมูลเวลาเข้าด้วยกันอัตโนมัติ)
                 </span>
               )}
             </div>
@@ -845,37 +879,46 @@ export default function AttendancePage() {
             <input
               type="file" multiple accept="image/*"
               onChange={handleFileChange}
-              className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 transition-all cursor-pointer border border-slate-200 rounded-xl p-1"
+              disabled={isRoundLimitReached}
+              className={`block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold transition-all border border-slate-200 rounded-xl p-1 ${
+                isRoundLimitReached
+                  ? 'opacity-50 cursor-not-allowed file:bg-slate-200 file:text-slate-400 bg-slate-50'
+                  : 'cursor-pointer file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 bg-white'
+              }`}
             />
           </div>
 
           <button
             onClick={handleScanAttendance}
-            disabled={isLoading || !selectedFiles || timeSlotConflict.hasConflict}
+            disabled={isLoading || !selectedFiles || timeSlotConflict.hasConflict || isRoundLimitReached}
             className="w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm shadow-xs disabled:bg-slate-200 disabled:text-slate-400 transition-all cursor-pointer"
           >
             {timeSlotConflict.hasConflict
               ? 'ไม่สามารถสแกนได้เนื่องจากเวลาชนกัน'
-              : isLoading
-              ? 'กำลังประมวลผลใบหน้า...'
-              : 'เริ่มสแกนใบหน้า'}
+              : isRoundLimitReached
+                ? 'เกินขีดจำกัดการเช็คชื่อ (สูงสุด 3 รอบต่อคาบ)'
+                : isLoading
+                  ? 'กำลังประมวลผลใบหน้า...'
+                  : 'เริ่มสแกนใบหน้า'}
           </button>
 
           <div className={`text-center py-2.5 px-4 rounded-xl font-bold text-xs border ${
-            timeSlotConflict.hasConflict
+            timeSlotConflict.hasConflict || isRoundLimitReached
               ? 'bg-amber-50 text-amber-800 border-amber-200'
               : status.includes('ข้อผิดพลาด')
-              ? 'bg-red-50 text-red-600 border-red-100'
-              : 'bg-slate-50 text-slate-700 border-slate-200'
-          }`}>
+                ? 'bg-red-50 text-red-600 border-red-100'
+                : 'bg-slate-50 text-slate-700 border-slate-200'
+            }`}>
             {timeSlotConflict.hasConflict
               ? `แจ้งเตือน: ช่วงเวลานี้มีการบันทึก "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว`
-              : status}
+              : isRoundLimitReached
+                ? `แจ้งเตือน: คาบเรียนนี้ถูกบันทึกการเช็คชื่อครบโควต้า 3 รอบแล้ว`
+                : status}
           </div>
         </div>
 
         {/* ตารางแสดงผลการตรวจ */}
-        {scanResults.length > 0 && (
+        {scanResults.length > 0 && !isRoundLimitReached && (
           <div className="w-full bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80 mb-6 animate-in fade-in duration-300">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 pb-3 border-b border-slate-100">
               <div>
@@ -883,7 +926,7 @@ export default function AttendancePage() {
                   รายชื่อนักศึกษาในคลาส ({attendanceEvaluationList.length} คน)
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  ตรวจพบในรูป {detectedStudents.length} คน • ไม่พบในรูป {attendanceEvaluationList.length - detectedStudents.length} คน
+                  สถานะการคำนวณเบื้องต้นจากการตรวจพบใบหน้ารอบปัจจุบัน ร่วมกับประวัติเดิม
                 </p>
               </div>
 
@@ -903,17 +946,17 @@ export default function AttendancePage() {
                 { id: 'ทั้งหมด', label: 'ทั้งหมด', count: counts.total, bg: 'bg-slate-100 text-slate-700' },
                 { id: 'มาเรียน', label: 'มาเรียน', count: counts.present, bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
                 { id: 'มาสาย', label: 'มาสาย', count: counts.late, bg: 'bg-amber-50 text-amber-700 border-amber-200' },
+                { id: 'รอตรวจสอบ', label: 'รอตรวจสอบ', count: counts.pending, bg: 'bg-purple-50 text-purple-700 border-purple-200' },
                 { id: 'ขาดเรียน', label: 'ขาดเรียน', count: counts.absent, bg: 'bg-red-50 text-red-700 border-red-200' },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setStatusFilter(tab.id as any)}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                    statusFilter === tab.id
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${statusFilter === tab.id
                       ? 'bg-[#0f766e] text-white border-[#0f766e] shadow-xs'
                       : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                  }`}
+                    }`}
                 >
                   {tab.label} ({tab.count})
                 </button>
@@ -927,6 +970,7 @@ export default function AttendancePage() {
                   const statusColor =
                     item.finalStatus === 'มาเรียน' ? 'bg-emerald-50/60 border-emerald-200' :
                       item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
+                        item.finalStatus === 'รอตรวจสอบ' ? 'bg-purple-50/60 border-purple-200' :
                         'bg-red-50/60 border-red-200';
 
                   return (
@@ -949,23 +993,25 @@ export default function AttendancePage() {
                             </span>
                           )}
                           {item.remark && (
-                            <div className="text-[11px] text-slate-400 mt-0.5">
-                              หมายเหตุ: {item.remark}
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              ประเมินสถานะ: {item.remark}
                             </div>
                           )}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-xs text-slate-600">
+                        <span className="font-mono font-bold text-xs text-slate-600 hidden sm:inline-block">
                           {item.studentCode}
                         </span>
 
-                        <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${item.finalStatus === 'มาเรียน'
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold border whitespace-nowrap ${item.finalStatus === 'มาเรียน'
                           ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                           : item.finalStatus === 'มาสาย'
                             ? 'bg-amber-100 text-amber-800 border-amber-300'
-                            : 'bg-red-100 text-red-700 border-red-300'
+                            : item.finalStatus === 'รอตรวจสอบ'
+                              ? 'bg-purple-100 text-purple-800 border-purple-300'
+                              : 'bg-red-100 text-red-700 border-red-300'
                           }`}>
                           {item.finalStatus}
                         </span>
@@ -987,13 +1033,13 @@ export default function AttendancePage() {
             >
               {timeSlotConflict.hasConflict
                 ? 'ไม่สามารถบันทึกได้เนื่องจากเวลาชนกัน'
-                : `ยืนยันการบันทึกเข้าเรียน (${startTime}-${endTime} น. / ${sessionType === 'COMPENSATION' ? 'สอนชดเชย' : 'คาบปกติ'})`}
+                : `ยืนยันการบันทึกเข้าเรียนรอบที่ ${dailyRoundNumber}`}
             </button>
           </div>
         )}
 
         {/* ส่วนแสดงภาพวิเคราะห์ใบหน้า */}
-        {scanResults.length > 0 && (
+        {scanResults.length > 0 && !isRoundLimitReached && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
             {scanResults.map((res, idx) => (
               <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
@@ -1122,6 +1168,12 @@ export default function AttendancePage() {
                 <span className="text-slate-400 font-bold">มาสาย:</span>
                 <span className="font-bold text-amber-700">
                   {counts.late} คน
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">รอตรวจสอบ:</span>
+                <span className="font-bold text-purple-700">
+                  {counts.pending} คน
                 </span>
               </div>
               <div className="flex justify-between">

@@ -78,7 +78,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: false, error: 'ไม่พบข้อมูลวิชาของนักศึกษาท่านนี้' }, { status: 404 });
     }
 
-    // 2. จัด Format ข้อมูลส่งกลับพร้อมคำนวณสถิติและสิทธิ์การสอบรายวิชา
+    // 2. จัด Format ข้อมูลส่งกลับพร้อมคำนวณสถิติและสิทธิ์การสอบรายวิชา (เพิ่ม section, semester, academicYear, joinCode)
     const formattedCourses = studentWithCourses.courses.map((course) => {
       const teacherObj = course.teacher;
       const teacherFullName = teacherObj
@@ -103,6 +103,10 @@ export async function GET(req: Request) {
         id: course.id,
         courseCode: course.courseCode,
         courseName: course.courseName,
+        section: course.section,
+        semester: course.semester,
+        academicYear: course.academicYear,
+        joinCode: course.joinCode,
         teacherName: teacherFullName,
         summary: {
           total,

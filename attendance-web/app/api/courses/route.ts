@@ -1,7 +1,20 @@
+// attendance-web/app/api/courses/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import jwt from 'jsonwebtoken';
 import { headers } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
+
+// ฟังก์ชันสุ่มรหัสเข้าร่วมชั้นเรียน (Join Code) 6 หลัก
+function generateJoinCode(length = 6) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
 
 /**
  * 🔍 [GET] - ดึงรายการวิชาของอาจารย์ (เฉพาะที่ ACTIVE)
@@ -53,8 +66,7 @@ export async function GET() {
 }
 
 /**
- * ➕ [POST] - สร้างรายวิชาใหม่
- * ใช้สำหรับ: ฟังก์ชัน 2.1 ในหน้า Dashboard
+ * ➕ [POST] - สร้างรายวิชาใหม่โดยอาจารย์ (รองรับ Section, Semester, AcademicYear และสุ่ม Join Code)
  */
 export async function POST(request: Request) {
   try {
@@ -76,14 +88,59 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'ไม่พบสิทธิ์อาจารย์ในระบบ' }, { status: 403 });
     }
 
-    const { courseCode, courseName } = await request.json();
+    const body = await request.json();
+    const { 
+      courseCode, 
+      courseName, 
+      section = "1", 
+      semester = "1", 
+      academicYear = "2569" 
+    } = body;
+
+    if (!courseCode || !courseName) {
+      return NextResponse.json({ success: false, error: 'กรุณากรอกรหัสวิชาและชื่อวิชา' }, { status: 400 });
+    }
+
+    // ตรวจสอบว่าวิชานี้และกลุ่มนี้ เปิดไปแล้วหรือยังในเทอมและปีการศึกษานี้
+    const existingCourse = await prisma.course.findFirst({
+      where: {
+        courseCode: courseCode.trim(),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim(),
+      }
+    });
+
+    if (existingCourse) {
+      return NextResponse.json(
+        { success: false, error: 'รายวิชานี้และกลุ่มเรียนนี้ ถูกเปิดไปแล้วในภาคเรียน/ปีการศึกษานี้' }, 
+        { status: 400 }
+      );
+    }
+
+    // สุ่มรหัส Join Code และตรวจสอบไม่ให้ซ้ำในระบบ
+    let newJoinCode = '';
+    let isUnique = false;
+    while (!isUnique) {
+      newJoinCode = generateJoinCode();
+      const checkCode = await prisma.course.findUnique({
+        where: { joinCode: newJoinCode }
+      });
+      if (!checkCode) {
+        isUnique = true;
+      }
+    }
 
     const newCourse = await prisma.course.create({
       data: {
-        courseCode,
-        courseName,
+        courseCode: courseCode.trim(),
+        courseName: courseName.trim(),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim(),
+        joinCode: newJoinCode,
         teacherId: teacher.id, 
-        status: 'ACTIVE' // 🚀 มั่นใจว่าสร้างใหม่ต้องเป็น ACTIVE เสมอ
+        status: 'ACTIVE'
       },
     });
 
@@ -91,6 +148,6 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("❌ Create Course Error:", error.message);
-    return NextResponse.json({ success: false, error: 'เกิดข้อผิดพลาดในการสร้างวิชา' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'เกิดข้อผิดพลาดในการสร้างวิชา: ' + error.message }, { status: 500 });
   }
 }

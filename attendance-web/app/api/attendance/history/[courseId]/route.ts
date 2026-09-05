@@ -1,3 +1,4 @@
+// attendance-web/app/api/attendance/history/[courseId]/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
@@ -8,7 +9,6 @@ export async function GET(
   { params }: { params: Promise<{ courseId?: string; id?: string }> | { courseId?: string; id?: string } }
 ) {
   try {
-    // 1. แกะค่า params รองรับทั้ง [courseId] และ [id]
     const resolvedParams = await Promise.resolve(params);
     const courseId = resolvedParams.courseId || resolvedParams.id;
 
@@ -19,7 +19,6 @@ export async function GET(
       );
     }
 
-    // 2. ตรวจสอบ query parameters (date, timeSlot, sessionType)
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date');
     const timeSlotParam = searchParams.get('timeSlot');
@@ -37,17 +36,16 @@ export async function GET(
       const endOfDay = new Date(targetDate);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // ใช้เฉพาะ createdAt เนื่องจากตาราง AttendanceSession ไม่มีคอลัมน์ date
       whereClause.createdAt = {
         gte: startOfDay,
         lte: endOfDay,
       };
     }
 
-    // 3. ดึงรายการ Session พร้อมข้อมูลการเช็คชื่อของนักศึกษาในแต่ละรอบ
+    // 3. ดึงรายการ Session พร้อมข้อมูลการเช็คชื่อ (เอา studentCode ออกจาก select ของ Attendance)
     const sessions = await prisma.attendanceSession.findMany({
       where: whereClause,
-      orderBy: { createdAt: 'asc' }, // เรียงรอบ 1 -> 2 -> 3 ตามลำดับเวลา
+      orderBy: { createdAt: 'asc' },
       include: {
         attendances: {
           orderBy: [
@@ -62,6 +60,8 @@ export async function GET(
             createdAt: true,
             updatedAt: true,
             date: true,
+            studentId: true,
+            // ❌ ลบ studentCode: true ออก เพราะไม่มีฟิลด์นี้ในตาราง Attendance
             student: {
               select: {
                 id: true,
@@ -104,8 +104,8 @@ export async function GET(
 
         return {
           id: att.id,
-          studentId: att.student?.id,
-          studentCode: att.student?.studentCode,
+          studentId: att.studentId || att.student?.id,
+          studentCode: att.student?.studentCode, // ดึงผ่านความสัมพันธ์ student แทน
           name: fullName,
           status: att.status,
           remark: att.remark,
@@ -126,6 +126,8 @@ export async function GET(
         records,
         attendances: session.attendances.map((att: any) => ({
           ...att,
+          studentId: att.studentId || att.student?.id,
+          studentCode: att.student?.studentCode,
           student: att.student
             ? {
                 ...att.student,
@@ -136,7 +138,6 @@ export async function GET(
       };
     });
 
-    // 5. กรองตาม timeSlot หรือ sessionType หากระบุมาใน query
     if (timeSlotParam || sessionTypeParam) {
       const cleanTargetSlot = timeSlotParam ? timeSlotParam.replace(/\s+/g, '') : null;
 

@@ -131,7 +131,7 @@ export async function DELETE(
   }
 }
 
-// 4. [PUT] แอดมินแก้ไขรหัสวิชาและชื่อรายวิชา
+// 4. [PUT] แอดมินแก้ไขข้อมูลรายวิชา (อัปเดตให้รองรับ Section, Semester, AcademicYear)
 export async function PUT(
   req: Request, 
   { params }: { params: Promise<{ id: string }> | { id: string } }
@@ -139,17 +139,40 @@ export async function PUT(
   try {
     const resolvedParams = await Promise.resolve(params);
     const courseId = resolvedParams.id;
-    const { courseCode, courseName } = await req.json();
+    const { courseCode, courseName, section, semester, academicYear } = await req.json();
 
-    if (!courseCode?.trim() || !courseName?.trim()) {
+    // เช็คข้อมูลให้ครบ
+    if (!courseCode?.trim() || !courseName?.trim() || !section?.trim() || !semester?.trim() || !academicYear?.trim()) {
       return NextResponse.json({ success: false, error: "กรุณากรอกข้อมูลให้ครบถ้วน" }, { status: 400 });
     }
 
+    // ตรวจสอบว่าแก้ไขแล้วไปซ้ำกับวิชาอื่นที่เปิดอยู่แล้วหรือไม่ (ยกเว้นตัวเอง)
+    const duplicateCheck = await prisma.course.findFirst({
+      where: {
+        courseCode: courseCode.trim(),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim(),
+        id: { not: courseId } // ยกเว้น ID ปัจจุบัน
+      }
+    });
+
+    if (duplicateCheck) {
+      return NextResponse.json(
+        { success: false, error: 'รายวิชานี้และกลุ่มเรียนนี้ ถูกเปิดไปแล้วในภาคเรียน/ปีการศึกษานี้' }, 
+        { status: 400 }
+      );
+    }
+
+    // บันทึกการแก้ไข
     const updatedCourse = await prisma.course.update({
       where: { id: courseId },
       data: {
         courseCode: courseCode.trim(),
         courseName: courseName.trim(),
+        section: section.trim(),
+        semester: semester.trim(),
+        academicYear: academicYear.trim(),
       },
     });
 

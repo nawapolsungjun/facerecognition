@@ -13,19 +13,22 @@ export default function StudentListPage() {
   const [course, setCourse] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-  // รายการคาบเรียนหลักของรายวิชา (แยกคาบเช้า/บ่ายชัดเจน และรวบรอบ 1, 2, เก็บตกให้อยู่ในคาบเดียวกัน)
   const [courseWeeks, setCourseWeeks] = useState<any[]>([]);
 
-  // State สำหรับ Modal รายงานประวัตินักศึกษา
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
-  // State สำหรับจัดการการแก้ไขข้อมูลวิชา
   const [isSettingOpen, setIsSettingOpen] = useState(false);
-  const [editData, setEditData] = useState({ courseName: '', courseCode: '' });
+  const [editData, setEditData] = useState({
+    courseName: '',
+    courseCode: '',
+    section: '1',
+    semester: '1',
+    academicYear: '2569',
+    joinCode: ''
+  });
   const [isDirty, setIsDirty] = useState(false);
 
-  // State สำหรับ Searchable Select กล่องเพิ่มนักศึกษา
   const [allSystemStudents, setAllSystemStudents] = useState<any[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
   const [selectedStudentCode, setSelectedStudentCode] = useState<string>('');
@@ -34,17 +37,14 @@ export default function StudentListPage() {
   const [isAdding, setIsAdding] = useState(false);
   const selectBoxRef = useRef<HTMLDivElement>(null);
 
-  // State สำหรับค้นหาและจัดเรียงรหัสในห้องเรียน
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // State สำหรับ Popup ยืนยันต่างๆ
   const [showUpdateCourseModal, setShowUpdateCourseModal] = useState(false);
   const [showArchiveCourseModal, setShowArchiveCourseModal] = useState(false);
   const [showDeleteCourseModal, setShowDeleteCourseModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<{ id: any; name: string } | null>(null);
 
-  // State สำหรับ Custom Alert Modal
   const [alertModal, setAlertModal] = useState<{
     show: boolean;
     title: string;
@@ -78,7 +78,14 @@ export default function StudentListPage() {
       const json = await resCourse.json();
       if (json.success && json.data) {
         setCourse(json.data);
-        setEditData({ courseName: json.data.courseName, courseCode: json.data.courseCode });
+        setEditData({
+          courseName: json.data.courseName || '',
+          courseCode: json.data.courseCode || '',
+          section: json.data.section || '1',
+          semester: json.data.semester || '1',
+          academicYear: json.data.academicYear || '2569',
+          joinCode: json.data.joinCode || ''
+        });
         setIsDirty(false);
 
         setSelectedStudent((currentSelected: any) => {
@@ -101,7 +108,6 @@ export default function StudentListPage() {
         }
       }
 
-      // ดึงประวัติการเช็คชื่อทั้งหมดและจัดกลุ่มคาบเรียน (แยกเช้า/บ่าย ไม่ทับกัน และรวบรอบ 1/2)
       if (resHistory && resHistory.ok) {
         const historyJson = await resHistory.json();
         if (historyJson.success && Array.isArray(historyJson.data)) {
@@ -131,11 +137,7 @@ export default function StudentListPage() {
               else timeSlot = '17:00-20:00';
             }
 
-            const isComp =
-              sess.sessionType === 'COMPENSATION' ||
-              fullText.includes('สอนชดเชย');
-
-            // Key สำหรับแยกแต่ละคาบเรียนให้ถูกต้อง: วันที่ + ช่วงเวลา + ประเภทคาบ
+            const isComp = sess.sessionType === 'COMPENSATION' || fullText.includes('สอนชดเชย');
             const slotKey = `${dateStr}_${timeSlot}_${isComp ? 'COMPENSATION' : 'REGULAR'}`;
 
             if (!uniqueSlots.has(slotKey)) {
@@ -256,7 +258,8 @@ export default function StudentListPage() {
         },
         body: JSON.stringify(editData)
       });
-      if (res.ok) {
+      const json = await res.json();
+      if (res.ok && json.success) {
         setShowUpdateCourseModal(false);
         setIsSettingOpen(false);
         fetchCourseData();
@@ -267,14 +270,16 @@ export default function StudentListPage() {
           isSuccess: true,
         });
       } else {
+        setShowUpdateCourseModal(false);
         setAlertModal({
           show: true,
           title: 'เกิดข้อผิดพลาด',
-          message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูลรายวิชา',
+          message: json.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูลรายวิชา',
           isSuccess: false,
         });
       }
     } catch {
+      setShowUpdateCourseModal(false);
       setAlertModal({
         show: true,
         title: 'เกิดข้อผิดพลาด',
@@ -451,7 +456,15 @@ export default function StudentListPage() {
       });
   }, [course?.students, searchTerm, sortOrder]);
 
-  // คำนวณประวัติ 15 สัปดาห์มาตรฐานให้ตรงตามตารางสรุปสถิติภาพรวมทุกสัปดาห์ 100%
+  const cleanRemarkString = (str: string) => {
+    if (!str) return '';
+    return str
+      .replace(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/gi, '')
+      .replace(/\(แก้ไขเวลา[^)]*?\)/gi, '')
+      .trim();
+  };
+
+  // 🚀 Logic คำนวณประวัติการเช็คชื่อแบบ Dynamic Matrix 1/0 พร้อมจัดระเบียบหมายเหตุให้สะอาด
   const studentWeeklyAttendance = useMemo(() => {
     if (!selectedStudent) return [];
 
@@ -464,32 +477,65 @@ export default function StudentListPage() {
       const session = courseWeeks[i] || null;
 
       if (session) {
-        // ค้นหาเรคคอร์ดของนักศึกษาในคาบนี้โดยยึดตาม sessionId หรือ วันที่
-        const matchedAtts = studentAtts.filter((att: any) => {
-          if (session.sessionIds && session.sessionIds.includes(att.sessionId)) {
-            return true;
+        const validAtts = (session.sessionIds || [])
+          .map((sId: string) => studentAtts.find((a: any) => a.sessionId === sId))
+          .filter(Boolean);
+
+        const patternArray = validAtts.map((att: any) => {
+          if (att && att.status !== 'ขาดเรียน' && att.status !== 'รอตรวจสอบ') {
+            return 1;
           }
-          if (att.sessionId && session.id && att.sessionId === session.id) {
-            return true;
-          }
-          const attDate = new Date(att.date || att.createdAt).toISOString().split('T')[0];
-          return attDate === session.dateStr;
+          return 0;
         });
 
-        // หากมีการเช็คชื่อหลายรอบ ให้เลือกสถานะล่าสุดหรือสถานะที่มีความสำคัญสูงสุด
-        let bestRecord = null;
-        if (matchedAtts.length > 0) {
-          const priority: Record<string, number> = { มาสาย: 5, มาเรียน: 4, ลา: 3, ขาดเรียน: 1 };
-          matchedAtts.sort((a, b) => {
-            const pA = priority[a.status] || 0;
-            const pB = priority[b.status] || 0;
-            if (pA !== pB) return pB - pA;
-            return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
-          });
-          bestRecord = matchedAtts[0];
+        const patternStr = patternArray.join('');
+        let finalStatus = 'ขาดเรียน';
+
+        if (patternArray.length === 3) {
+          if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
+          else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
+          else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
+          else finalStatus = 'ขาดเรียน';
+        }
+        else if (patternArray.length === 2) {
+          if (patternStr === '11') finalStatus = 'มาเรียน';
+          else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
+          else if (patternStr === '01') finalStatus = 'มาสาย';
+          else finalStatus = 'ขาดเรียน';
+        }
+        else if (patternArray.length === 1) {
+          finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
+        }
+
+        let rawRemark = '';
+        let editTimestamp = '';
+
+        if (validAtts.length > 0) {
+          const manualEdit = validAtts.find((a: any) => (a.remark || '').includes('แก้ไข') || a.isManual);
+          if (manualEdit) {
+            rawRemark = manualEdit.remark || '';
+          } else {
+            const lastAtt = validAtts[validAtts.length - 1];
+            rawRemark = lastAtt.remark || '';
+          }
+        }
+
+        const matchEditTime = rawRemark.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
+        if (matchEditTime) {
+          editTimestamp = matchEditTime[0];
+        }
+
+        let cleanedBase = cleanRemarkString(rawRemark);
+        cleanedBase = cleanedBase.replace(/\[\d{2}:\d{2}-\d{2}:\d{2}( น.)?\]\s*/g, '');
+
+        let finalRemark = cleanedBase;
+        if (editTimestamp && !finalRemark.includes(editTimestamp)) {
+          finalRemark = finalRemark ? `${finalRemark} ${editTimestamp}` : editTimestamp;
         }
 
         const sessionDate = session.createdAt || session.date;
+        const defaultSessionNote = session.note ? `(${session.note})` : '';
+        const displayRemark = `${finalRemark} ${defaultSessionNote}`.trim();
 
         weeksList.push({
           weekNumber: weekIndex,
@@ -497,9 +543,9 @@ export default function StudentListPage() {
           date: sessionDate,
           timeLabel: session.timeSlot || '',
           isComp: session.isComp || session.sessionType === 'COMPENSATION',
-          status: bestRecord ? bestRecord.status : 'ขาดเรียน',
-          remark: bestRecord?.remark || session.note || '',
-          recordTime: bestRecord?.createdAt || session.createdAt
+          status: finalStatus,
+          remark: displayRemark,
+          recordTime: sessionDate
         });
       } else {
         weeksList.push({
@@ -535,19 +581,61 @@ export default function StudentListPage() {
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          วิชา: <span className="font-bold text-white">{course?.courseCode || '...'}</span>  <span className="text-white-200">{course?.courseName || '...'}</span>
-        </p>
+        <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
+          <p>
+            วิชา: <span className="font-bold text-white font-mono">{course?.courseCode || '...'}</span> - <span className="text-white font-bold">{course?.courseName || '...'}</span>
+          </p>
+        </div>
       </header>
 
+      {/* Navigation Tabs Bar */}
+      <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
+        <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
+          <Link
+            href={`/teacher/course/${courseId}`}
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            เช็คชื่อสแกนใบหน้า
+          </Link>
+
+          <Link
+            href={`/teacher/report/${courseId}`}
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            รายงานการเข้าเรียน
+          </Link>
+
+          <div className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm bg-white text-slate-800 shadow rounded-t-xl">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            จัดการรายชื่อนักศึกษา
+          </div>
+        </div>
+      </nav>
       {/* 3. Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
-        
+
         {/* กล่องข้อมูลรายวิชา */}
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">รายวิชา</span>
             <h2 className="text-2xl font-black text-slate-800">{course?.courseCode || '...'} : {course?.courseName || '...'}</h2>
+            {course?.section && (
+              <div className="text-xs text-slate-500 mt-1 font-medium flex gap-3">
+                <span>กลุ่มเรียน: {course.section}</span>
+                <span>•</span>
+                <span>ภาคเรียน: {course.semester}/{course.academicYear}</span>
+                <span>•</span>
+                <span className="font-mono text-emerald-700 font-bold">Join Code: {course.joinCode || '-'}</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <span className="bg-slate-50 text-slate-600 font-bold text-xs px-3.5 py-2 rounded-xl border border-slate-200/60">
@@ -653,6 +741,7 @@ export default function StudentListPage() {
           <span className="text-xs text-slate-500 font-bold">
             แสดง <span className="text-emerald-700 font-black">{filteredAndSortedStudents.length}</span> จากทั้งหมด {course?.students?.length || 0} คน
           </span>
+
         </div>
 
         {/* ตารางรายชื่อนักศึกษา */}
@@ -691,9 +780,9 @@ export default function StudentListPage() {
                       </td>
                       <td
                         className="p-4 font-bold text-slate-800 hover:text-emerald-700 cursor-pointer text-xs md:text-sm"
-                        onClick={() => { 
-                          setSelectedStudent({ ...student, displayName }); 
-                          setIsReportModalOpen(true); 
+                        onClick={() => {
+                          setSelectedStudent({ ...student, displayName });
+                          setIsReportModalOpen(true);
                         }}
                       >
                         {displayName}
@@ -704,9 +793,9 @@ export default function StudentListPage() {
                           {/* ปุ่มดูรายงานสถิตินักศึกษา */}
                           <button
                             type="button"
-                            onClick={() => { 
-                              setSelectedStudent({ ...student, displayName }); 
-                              setIsReportModalOpen(true); 
+                            onClick={() => {
+                              setSelectedStudent({ ...student, displayName });
+                              setIsReportModalOpen(true);
                             }}
                             title="ดูสถิติการเข้าเรียน"
                             className="p-2 text-slate-700 bg-slate-100 hover:bg-slate-700 hover:text-white rounded-xl border border-slate-200/80 transition-all shadow-2xs cursor-pointer"
@@ -722,11 +811,10 @@ export default function StudentListPage() {
                             onClick={() => setStudentToDelete({ id: student.id, name: displayName })}
                             disabled={isDeleting === String(student.id)}
                             title="ลบนักศึกษาออกจากรายวิชา"
-                            className={`p-2 rounded-xl border transition-all shadow-2xs cursor-pointer ${
-                              isDeleting === String(student.id)
+                            className={`p-2 rounded-xl border transition-all shadow-2xs cursor-pointer ${isDeleting === String(student.id)
                                 ? 'bg-slate-100 text-slate-300 border-slate-200'
                                 : 'text-red-600 bg-red-50 hover:bg-red-600 hover:text-white border-red-200/60'
-                            }`}
+                              }`}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -758,10 +846,10 @@ export default function StudentListPage() {
         </p>
       </footer>
 
-      {/* 5. Center Modal Popup: สรุปสถิติ 15 สัปดาห์ */}
+      {/* 5. Center Modal Popup: สรุปสถิติ 15 สัปดาห์ (ขยาย max-w-3xl ให้กว้างขึ้น) */}
       {isReportModalOpen && selectedStudent && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-xl w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
 
             <div className="flex justify-between items-start pb-4 mb-4 border-b border-slate-100">
               <div>
@@ -782,15 +870,16 @@ export default function StudentListPage() {
             </div>
 
             {/* กล่องสรุปสถานะการเข้าเรียน */}
-            <div className="grid grid-cols-4 gap-2 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
               {[
                 { label: 'มาเรียน', val: 'มาเรียน', color: 'text-emerald-700', bg: 'bg-emerald-50' },
                 { label: 'มาสาย', val: 'มาสาย', color: 'text-amber-700', bg: 'bg-amber-50' },
                 { label: 'ลา', val: 'ลา', color: 'text-blue-700', bg: 'bg-blue-50' },
+                { label: 'รอตรวจสอบ', val: 'รอตรวจสอบ', color: 'text-purple-700', bg: 'bg-purple-50' },
                 { label: 'ขาดเรียน', val: 'ขาดเรียน', color: 'text-red-700', bg: 'bg-red-50' }
               ].map((item) => (
                 <div key={item.val} className={`${item.bg} p-2.5 rounded-2xl text-center border border-slate-100`}>
-                  <p className="text-[10px] font-bold text-slate-500 mb-0.5">{item.label}</p>
+                  <p className="text-[10px] font-bold text-slate-500 mb-0.5 whitespace-nowrap">{item.label}</p>
                   <p className={`text-lg font-black ${item.color}`}>
                     {studentWeeklyAttendance.filter((a: any) => a.isRecorded && a.status === item.val).length}
                   </p>
@@ -798,7 +887,7 @@ export default function StudentListPage() {
               ))}
             </div>
 
-            {/* รายการแสดงผลสรุป 15 สัปดาห์มาตรฐานตรงกับตารางรวม */}
+            {/* รายการแสดงผลสรุป 15 สัปดาห์ */}
             <div className="flex-1 overflow-y-auto pr-1 space-y-2">
               <div className="flex justify-between items-center mb-1">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -810,21 +899,19 @@ export default function StudentListPage() {
               </div>
 
               {studentWeeklyAttendance.map((record: any) => (
-                <div 
-                  key={record.weekNumber} 
-                  className={`flex justify-between items-center p-3.5 rounded-2xl border transition-colors ${
-                    record.isRecorded 
-                      ? 'bg-slate-50 border-slate-200/70 hover:bg-slate-100/60' 
-                      : 'bg-slate-50/40 border-slate-100 opacity-60'
-                  }`}
+                <div
+                  key={record.weekNumber}
+                  className={`flex justify-between items-center p-3.5 rounded-2xl border transition-colors ${record.isRecorded
+                    ? 'bg-slate-50 border-slate-200/70 hover:bg-slate-100/60'
+                    : 'bg-slate-50/40 border-slate-100 opacity-60'
+                    }`}
                 >
-                  <div className="pr-3">
+                  <div className="pr-3 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                        record.isRecorded 
-                          ? 'bg-emerald-100 text-emerald-800' 
-                          : 'bg-slate-200 text-slate-600'
-                      }`}>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${record.isRecorded
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-200 text-slate-600'
+                        }`}>
                         สัปดาห์ที่ {record.weekNumber}
                       </span>
 
@@ -852,7 +939,7 @@ export default function StudentListPage() {
                           )}
                         </p>
                         {record.remark && (
-                          <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed break-words">
                             {record.remark}
                           </p>
                         )}
@@ -865,15 +952,16 @@ export default function StudentListPage() {
                   </div>
 
                   {record.isRecorded ? (
-                    <span className={`px-3 py-1 rounded-xl text-xs font-bold border shrink-0 ${
-                      record.status === 'มาเรียน'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : record.status === 'มาสาย'
+                    <span className={`px-3 py-1 rounded-xl text-[11px] whitespace-nowrap font-bold border shrink-0 ${record.status === 'มาเรียน'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : record.status === 'มาสาย'
                         ? 'bg-amber-50 text-amber-700 border-amber-200'
                         : record.status === 'ลา'
-                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                        : 'bg-red-50 text-red-700 border-red-200'
-                    }`}>
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : record.status === 'รอตรวจสอบ'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
+                      }`}>
                       {record.status}
                     </span>
                   ) : (
@@ -923,30 +1011,87 @@ export default function StudentListPage() {
               }}
               className="space-y-4"
             >
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  ชื่อรายวิชา
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editData.courseName}
-                  onChange={(e) => handleInputChange('courseName', e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    ชื่อรายวิชา
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editData.courseName}
+                    onChange={(e) => handleInputChange('courseName', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  รหัสวิชา (Classroom Code)
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editData.courseCode}
-                  onChange={(e) => handleInputChange('courseCode', e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-mono font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-                />
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    รหัสวิชา
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editData.courseCode}
+                    onChange={(e) => handleInputChange('courseCode', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-mono font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    กลุ่มเรียน (Section)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editData.section}
+                    onChange={(e) => handleInputChange('section', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    ภาคเรียน (Semester)
+                  </label>
+                  <select
+                    required
+                    value={editData.semester}
+                    onChange={(e) => handleInputChange('semester', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all cursor-pointer"
+                  >
+                    <option value="1">เทอม 1</option>
+                    <option value="2">เทอม 2</option>
+                    <option value="3">เทอม 3 (ซัมเมอร์)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    ปีการศึกษา
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editData.academicYear}
+                    onChange={(e) => handleInputChange('academicYear', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    รหัสเข้าร่วมชั้นเรียน (Join Code)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editData.joinCode}
+                    onChange={(e) => handleInputChange('joinCode', e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-mono font-bold text-emerald-700 tracking-wider uppercase focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
@@ -997,12 +1142,20 @@ export default function StudentListPage() {
             </p>
             <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
               <div className="flex justify-between">
-                <span className="text-slate-400 font-bold">ชื่อวิชาใหม่:</span>
+                <span className="text-slate-400 font-bold">ชื่อวิชา:</span>
                 <span className="font-bold text-slate-800">{editData.courseName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 font-bold">รหัสวิชาใหม่:</span>
+                <span className="text-slate-400 font-bold">รหัสวิชา:</span>
                 <span className="font-mono font-bold text-emerald-700">{editData.courseCode}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">กลุ่ม / เทอม:</span>
+                <span className="font-bold text-slate-700">กลุ่ม {editData.section} ({editData.semester}/{editData.academicYear})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">Join Code:</span>
+                <span className="font-mono font-bold text-emerald-700 uppercase">{editData.joinCode}</span>
               </div>
             </div>
             <div className="flex gap-3">
@@ -1100,7 +1253,7 @@ export default function StudentListPage() {
               <button
                 type="button"
                 onClick={handleConfirmDeleteStudent}
-                className="flex-[2] bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                className="flex-[2] bg-red-600 hover:bg-red-700 text-text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
                 ลบออกจากวิชา
               </button>

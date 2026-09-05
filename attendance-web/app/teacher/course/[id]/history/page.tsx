@@ -34,12 +34,19 @@ export default function AttendanceHistoryPage() {
   const filterDateParam = searchParams.get('date');
   const filterTimeSlotParam = searchParams.get('timeSlot');
 
-  const [courseInfo, setCourseInfo] = useState<{ courseName: string; courseCode: string } | null>(null);
+  // เพิ่มรองรับ section, semester, academicYear
+  const [courseInfo, setCourseInfo] = useState<{
+    courseName: string;
+    courseCode: string;
+    section?: string;
+    semester?: string;
+    academicYear?: string;
+  } | null>(null);
+
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
 
-  // State สำหรับเก็บ URL รูปภาพที่ต้องการซูมดูแบบเต็มหน้าจอ
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const getAuthToken = () => localStorage.getItem('teacher_token') || localStorage.getItem('token');
@@ -54,7 +61,10 @@ export default function AttendanceHistoryPage() {
       if (json.success && json.data) {
         setCourseInfo({
           courseName: json.data.courseName,
-          courseCode: json.data.courseCode
+          courseCode: json.data.courseCode,
+          section: json.data.section,
+          semester: json.data.semester,
+          academicYear: json.data.academicYear
         });
       }
     } catch (err) {
@@ -138,44 +148,17 @@ export default function AttendanceHistoryPage() {
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
-        </p>
+        <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
+          <p>
+            วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
+          </p>
+        </div>
       </header>
 
       {/* Navigation Tabs Bar */}
       <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
-          <Link
-            href={`/teacher/course/${courseId}`}
-            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            เช็คชื่อสแกนใบหน้า
-          </Link>
-
-          <Link
-            href={`/teacher/report/${courseId}`}
-            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            รายงานประจำวัน
-          </Link>
-
-          <Link
-            href={`/teacher/course/${courseId}/students`}
-            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            จัดการรายชื่อนักศึกษา
-          </Link>
-
+          
           <button
             type="button"
             className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm bg-white text-slate-800 shadow rounded-t-xl"
@@ -193,11 +176,17 @@ export default function AttendanceHistoryPage() {
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
-            <h2 className="text-xl font-black text-slate-800">
-              วิชา: <span className="font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}
-            </h2>
+            <div className="text-xl font-black text-slate-800 flex flex-wrap items-center gap-2 mt-1">
+              <span>วิชา: <span className="font-mono text-emerald-700">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}</span>
+              {/* แสดงกลุ่มเรียนและภาคเรียน */}
+              {courseInfo && (
+                <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-bold border border-slate-200">
+                  กลุ่ม {courseInfo.section || '-'} | เทอม {courseInfo.semester || '-'}/{courseInfo.academicYear || '-'}
+                </span>
+              )}
+            </div>
             {(filterDateParam || filterTimeSlotParam) && (
-              <p className="text-xs text-slate-500 font-bold mt-1">
+              <p className="text-xs text-slate-500 font-bold mt-2">
                 {filterDateParam && (
                   <>
                     กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
@@ -261,7 +250,6 @@ export default function AttendanceHistoryPage() {
                           alt={`รอบที่ ${roundNum}`}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         />
-                        {/* Overlay บอกว่าคลิกขยายได้ */}
                         <div className="absolute inset-0 bg-slate-900/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                           <span className="bg-slate-900/80 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow flex items-center gap-1">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -374,7 +362,7 @@ export default function AttendanceHistoryPage() {
 
             <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-2xl overflow-hidden">
               {(selectedSession.attendances || selectedSession.records) &&
-              (selectedSession.attendances?.length > 0 || selectedSession.records?.length > 0) ? (
+                (selectedSession.attendances?.length > 0 || selectedSession.records?.length > 0) ? (
                 (selectedSession.attendances || selectedSession.records).map((att: any, idx: number) => {
                   const studentName =
                     att.student?.name ||
@@ -399,15 +387,14 @@ export default function AttendanceHistoryPage() {
                         )}
                       </div>
                       <span
-                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${
-                          att.status === 'มาเรียน'
+                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${att.status === 'มาเรียน'
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : att.status === 'มาสาย'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : att.status === 'ลา'
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : 'bg-red-50 text-red-700 border-red-200'
-                        }`}
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : att.status === 'ลา'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : 'bg-red-50 text-red-700 border-red-200'
+                          }`}
                       >
                         {att.status}
                       </span>

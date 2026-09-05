@@ -20,7 +20,7 @@ interface AttendanceRecord {
     date?: string;
     createdAt?: string;
     time?: string;
-    status: 'มาเรียน' | 'มาสาย' | 'ลา' | 'ขาดเรียน' | string;
+    status: 'มาเรียน' | 'มาสาย' | 'ลา' | 'รอตรวจสอบ' | 'ขาดเรียน' | string;
     timeSlot?: string;
     remark?: string;
     sessionType?: string;
@@ -40,6 +40,9 @@ interface CourseData {
     courseCode?: string;
     courseName?: string;
     teacherName?: string;
+    section?: string;
+    semester?: string;
+    academicYear?: string;
     attendance?: AttendanceRecord[];
     friends?: FriendProfile[];
 }
@@ -59,10 +62,11 @@ export default function StudentCourseDetailPage() {
     const fetchDetails = useCallback(async (studentId: string, token: string) => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/student/courses/details?courseId=${courseId}&studentId=${studentId}`, {
+            const res = await fetch(`/api/student/courses/details?courseId=${courseId}&studentId=${studentId}&_t=${Date.now()}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                cache: 'no-store'
             });
 
             const json = await res.json();
@@ -110,7 +114,7 @@ export default function StudentCourseDetailPage() {
         }
     }, [fetchDetails, router]);
 
-    // กรองและเรียงลำดับรายการตามวันที่/เวลา โดยแสดงผลครบถ้วนทุกสัปดาห์ที่บันทึก
+    // กรองและเรียงลำดับรายการตามวันที่/เวลา
     const studentAttendanceList = useMemo(() => {
         if (!courseData?.attendance) return [];
 
@@ -126,6 +130,7 @@ export default function StudentCourseDetailPage() {
         const present = studentAttendanceList.filter((a) => a.status === 'มาเรียน').length;
         const late = studentAttendanceList.filter((a) => a.status === 'มาสาย').length;
         const leave = studentAttendanceList.filter((a) => a.status === 'ลา').length;
+        const pending = studentAttendanceList.filter((a) => a.status === 'รอตรวจสอบ').length; // ✅ เพิ่มการนับรอตรวจสอบ
         const absent = studentAttendanceList.filter((a) => a.status === 'ขาดเรียน').length;
 
         const attendancePercentage = total > 0 ? Math.round(((present + late) / total) * 100) : 100;
@@ -138,6 +143,7 @@ export default function StudentCourseDetailPage() {
             present,
             late,
             leave,
+            pending, // ✅ ส่งออกตัวแปร
             absent,
             percentage: attendancePercentage,
             maxAllowedAbsent: MAX_ALLOWED_ABSENT,
@@ -195,9 +201,6 @@ export default function StudentCourseDetailPage() {
                 <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
                     ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
                 </h1>
-                <p className="text-emerald-100 font-medium text-xs md:text-sm">
-                    วิชา: <span className="font-bold text-white">{courseData?.courseCode}</span> : <span className="text-white font-medium">{courseData?.courseName}</span>
-                </p>
             </header>
 
             <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
@@ -205,22 +208,20 @@ export default function StudentCourseDetailPage() {
                     <button
                         type="button"
                         onClick={() => setActiveTab('attendance')}
-                        className={`flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${
-                            activeTab === 'attendance'
+                        className={`flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${activeTab === 'attendance'
                                 ? 'bg-white text-slate-800 shadow'
                                 : 'text-emerald-50 hover:bg-emerald-700/50 hover:text-white'
-                        }`}
+                            }`}
                     >
                         ประวัติการเข้าเรียนของฉัน
                     </button>
                     <button
                         type="button"
                         onClick={() => setActiveTab('friends')}
-                        className={`flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${
-                            activeTab === 'friends'
+                        className={`flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${activeTab === 'friends'
                                 ? 'bg-white text-slate-800 shadow'
                                 : 'text-emerald-50 hover:bg-emerald-700/50 hover:text-white'
-                        }`}
+                            }`}
                     >
                         รายชื่อนักศึกษาในชั้นเรียน
                     </button>
@@ -234,6 +235,13 @@ export default function StudentCourseDetailPage() {
                         <h2 className="text-2xl font-black text-slate-800">
                             {courseData?.courseCode} : {courseData?.courseName}
                         </h2>
+                        {courseData?.section && (
+                            <div className="text-xs text-slate-500 mt-1 font-medium flex gap-3 flex-wrap">
+                                <span>กลุ่มเรียน: {courseData.section}</span>
+                                <span>•</span>
+                                <span>ภาคเรียน: {courseData.semester}/{courseData.academicYear}</span>
+                            </div>
+                        )}
                         <p className="text-xs text-slate-500 font-medium mt-1">
                             อาจารย์ผู้สอน: <span className="text-slate-800 font-bold">{courseData?.teacherName || 'อาจารย์ประจำวิชา'}</span>
                         </p>
@@ -250,9 +258,8 @@ export default function StudentCourseDetailPage() {
                         <div>
                             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">เกณฑ์เวลาเรียน (ไม่ต่ำกว่า 80%)</span>
                             <div className="flex items-baseline gap-2 mt-0.5">
-                                <span className={`text-3xl font-black font-mono ${
-                                    summary.percentage >= 80 ? 'text-emerald-700' : summary.percentage >= 70 ? 'text-amber-700' : 'text-red-700'
-                                }`}>
+                                <span className={`text-3xl font-black font-mono ${summary.percentage >= 80 ? 'text-emerald-700' : summary.percentage >= 70 ? 'text-amber-700' : 'text-red-750'
+                                    }`}>
                                     {summary.percentage}%
                                 </span>
                                 <span className="text-xs font-bold text-slate-500">เวลาเรียนสะสม</span>
@@ -275,28 +282,33 @@ export default function StudentCourseDetailPage() {
                             )}
                         </div>
                     </div>
-                </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                    <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/60 text-center">
-                        <p className="text-[11px] font-bold text-slate-500 mb-1">ทั้งหมด</p>
-                        <p className="text-2xl font-black text-slate-800">{summary.total}</p>
-                    </div>
-                    <div className="bg-[#ecfdf5] p-3.5 rounded-2xl border border-emerald-100 text-center">
-                        <p className="text-[11px] font-bold text-emerald-800 mb-1">มาเรียน</p>
-                        <p className="text-2xl font-black text-[#16a34a]">{summary.present}</p>
-                    </div>
-                    <div className="bg-[#fffbeb] p-3.5 rounded-2xl border border-amber-100 text-center">
-                        <p className="text-[11px] font-bold text-amber-800 mb-1">มาสาย</p>
-                        <p className="text-2xl font-black text-[#d97706]">{summary.late}</p>
-                    </div>
-                    <div className="bg-[#eff6ff] p-3.5 rounded-2xl border border-blue-100 text-center">
-                        <p className="text-[11px] font-bold text-blue-800 mb-1">ลา</p>
-                        <p className="text-2xl font-black text-[#2563eb]">{summary.leave}</p>
-                    </div>
-                    <div className="bg-[#fef2f2] p-3.5 rounded-2xl border border-red-100 text-center">
-                        <p className="text-[11px] font-bold text-red-700 mb-1">ขาดเรียน</p>
-                        <p className="text-2xl font-black text-[#dc2626]">{summary.absent}</p>
+                    {/* ✅ ปรับเป็น 6 คอลัมน์ และเพิ่มกล่อง รอตรวจสอบ */}
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-4">
+                        <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/60 text-center">
+                            <p className="text-[11px] font-bold text-slate-500 mb-1">ทั้งหมด</p>
+                            <p className="text-2xl font-black text-slate-800">{summary.total}</p>
+                        </div>
+                        <div className="bg-[#ecfdf5] p-3.5 rounded-2xl border border-emerald-100 text-center">
+                            <p className="text-[11px] font-bold text-emerald-800 mb-1">มาเรียน</p>
+                            <p className="text-2xl font-black text-[#16a34a]">{summary.present}</p>
+                        </div>
+                        <div className="bg-[#fffbeb] p-3.5 rounded-2xl border border-amber-100 text-center">
+                            <p className="text-[11px] font-bold text-amber-800 mb-1">มาสาย</p>
+                            <p className="text-2xl font-black text-[#d97706]">{summary.late}</p>
+                        </div>
+                        <div className="bg-[#eff6ff] p-3.5 rounded-2xl border border-blue-100 text-center">
+                            <p className="text-[11px] font-bold text-blue-800 mb-1">ลา</p>
+                            <p className="text-2xl font-black text-[#2563eb]">{summary.leave}</p>
+                        </div>
+                        <div className="bg-purple-50 p-3.5 rounded-2xl border border-purple-100 text-center">
+                            <p className="text-[11px] font-bold text-purple-700 mb-1">รอตรวจสอบ</p>
+                            <p className="text-2xl font-black text-purple-600">{summary.pending}</p>
+                        </div>
+                        <div className="bg-[#fef2f2] p-3.5 rounded-2xl border border-red-100 text-center">
+                            <p className="text-[11px] font-bold text-red-700 mb-1">ขาดเรียน</p>
+                            <p className="text-2xl font-black text-[#dc2626]">{summary.absent}</p>
+                        </div>
                     </div>
                 </div>
 
@@ -346,16 +358,18 @@ export default function StudentCourseDetailPage() {
                                                         )}
                                                     </td>
                                                     <td className="p-4 text-center whitespace-nowrap align-middle">
+                                                        {/* ✅ กำหนดสี Badge สำหรับ รอตรวจสอบ ด้วย */}
                                                         <span
-                                                            className={`px-3 py-1 rounded-xl text-xs font-bold inline-block border ${
-                                                                a.status === 'มาเรียน'
+                                                            className={`px-3 py-1 rounded-xl text-xs font-bold inline-block border ${a.status === 'มาเรียน'
                                                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                                     : a.status === 'มาสาย'
-                                                                    ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                    : a.status === 'ลา'
-                                                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                                                    : 'bg-red-50 text-red-700 border-red-200'
-                                                            }`}
+                                                                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                        : a.status === 'ลา'
+                                                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                                            : a.status === 'รอตรวจสอบ'
+                                                                                ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                                                : 'bg-red-50 text-red-700 border-red-200'
+                                                                }`}
                                                         >
                                                             {a.status}
                                                         </span>

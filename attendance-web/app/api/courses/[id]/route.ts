@@ -1,3 +1,4 @@
+// attendance-web/app/api/courses/[id]/route.ts
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
@@ -5,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * 🔍 [GET] - ดึงข้อมูลรายวิชาและรายชื่อนักศึกษาพร้อมประวัติการเข้าเรียน
- * ใช้สำหรับ: หน้า Student List และการโชว์ Drawer สรุปรายคน
+ * ใช้สำหรับ: หน้า Student List, หน้า Report และการโชว์ข้อมูลวิชา
  */
 export async function GET(
   request: Request,
@@ -22,6 +23,7 @@ export async function GET(
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
+        teacher: true, // ✅ เพิ่มบรรทัดนี้ เพื่อดึงข้อมูลอาจารย์ผู้สอนมาด้วย
         students: {
           include: {
             // 🚀 ดึงประวัติการเช็คชื่อพ่วงมาด้วย (ชื่อฟิลด์ต้องตรงกับ schema.prisma)
@@ -55,7 +57,6 @@ export async function GET(
 
 /**
  * ⚙️ [PATCH] - แก้ไขข้อมูลวิชา หรือ จัดเก็บวิชา (Archive)
- * ใช้สำหรับ: ฟังก์ชัน 2.2 และ 2.3 ใน Modal ตั้งค่า
  */
 export async function PATCH(
   request: Request,
@@ -64,7 +65,8 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { courseName, courseCode, status } = body;
+    
+    const { courseName, courseCode, status, section, semester, academicYear, joinCode } = body;
 
     const updated = await prisma.course.update({
       where: { id },
@@ -72,6 +74,10 @@ export async function PATCH(
         ...(courseName && { courseName }),
         ...(courseCode && { courseCode }),
         ...(status && { status }), // เช่น 'ACTIVE' หรือ 'ARCHIVED'
+        ...(section && { section }),
+        ...(semester && { semester }),
+        ...(academicYear && { academicYear }),
+        ...(joinCode && { joinCode }),
       }
     });
 
@@ -83,8 +89,7 @@ export async function PATCH(
 }
 
 /**
- * 🗑️ [DELETE] - ลบรายวิชาทิ้งถาวร (พร้อมเคลียร์ข้อมูลความสัมพันธ์เพื่อป้องกัน Foreign Key Violation)
- * ใช้สำหรับ: ฟังก์ชัน 2.3 (Danger Zone)
+ * 🗑️ [DELETE] - ลบรายวิชาทิ้งถาวร
  */
 export async function DELETE(
   request: Request,

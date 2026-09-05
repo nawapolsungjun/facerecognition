@@ -1,3 +1,4 @@
+// attendance-web/app/student/dashboard/page.tsx
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -6,7 +7,7 @@ import Link from 'next/link';
 export default function StudentDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [courseCode, setCourseCode] = useState('');
+  const [joinCode, setJoinCode] = useState('');
   const [myCourses, setMyCourses] = useState<any[]>([]);
   const [status, setStatus] = useState('');
   const [isPageLoading, setIsPageLoading] = useState(true);
@@ -45,11 +46,14 @@ export default function StudentDashboard() {
 
   const fetchMyCourses = useCallback(async (studentId: string, token: string) => {
     try {
-      const res = await fetch(`/api/student/courses?studentId=${studentId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await fetch(`/api/student/courses?studentId=${studentId}&_t=${Date.now()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
       });
       const json = await res.json();
-      if (json.success) setMyCourses(json.data);
+      if (json.success) {
+        setMyCourses(json.data);
+      }
     } catch (err) {
       console.error('Fetch courses error:', err);
     }
@@ -76,8 +80,9 @@ export default function StudentDashboard() {
       setUser({ ...userData, displayName: initialFullName });
 
       try {
-        const resProfile = await fetch(`/api/student/profile?studentId=${userData.id}`, {
-          headers: { Authorization: `Bearer ${token}` }
+        const resProfile = await fetch(`/api/student/profile?studentId=${userData.id}&_t=${Date.now()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store'
         });
         const profileData = await resProfile.json();
 
@@ -110,11 +115,11 @@ export default function StudentDashboard() {
 
   const handleJoinClick = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!courseCode.trim()) {
+    if (!joinCode.trim()) {
       setAlertModal({
         show: true,
         title: 'ข้อมูลไม่ครบถ้วน',
-        message: 'กรุณากรอกรหัส Classroom ก่อนดำเนินการ',
+        message: 'กรุณากรอกรหัส Join Code (6 หลัก) ก่อนดำเนินการ',
         isSuccess: false,
       });
       return;
@@ -134,26 +139,34 @@ export default function StudentDashboard() {
     setStatus('กำลังเข้าร่วม...');
     try {
       const token = localStorage.getItem('student_token');
+      const savedUser = localStorage.getItem('student_user');
+      const userData = savedUser ? JSON.parse(savedUser) : user;
+      const studentId = userData?.id || user?.id;
+
       const res = await fetch('/api/student/join', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ studentId: user.id, courseCode: courseCode.trim() }),
+        body: JSON.stringify({ studentId, joinCode: joinCode.trim().toUpperCase() }),
       });
       const data = await res.json();
       if (data.success) {
         setStatus('เข้าร่วมสำเร็จ');
-        setCourseCode('');
+        setJoinCode('');
         setShowJoinConfirmModal(false);
         setShowNoFaceJoinModal(false);
-        if (token) fetchMyCourses(user.id, token);
+
+        // แสดง Popup สำเร็จ และเมื่อกดปุ่มตกลง จะบังคับรีเฟรชหน้าเว็บทันที
         setAlertModal({
           show: true,
           title: 'เข้าร่วมชั้นเรียนสำเร็จ',
           message: 'คุณได้เข้าร่วมรายวิชาเรียบร้อยแล้ว',
           isSuccess: true,
+          onClose: () => {
+            window.location.reload();
+          }
         });
       } else {
         setStatus(`${data.error}`);
@@ -166,7 +179,8 @@ export default function StudentDashboard() {
           isSuccess: false,
         });
       }
-    } catch {
+    } catch (err) {
+      console.error('Join error:', err);
       setStatus('เกิดข้อผิดพลาดในการเชื่อมต่อ');
       setShowJoinConfirmModal(false);
       setShowNoFaceJoinModal(false);
@@ -274,7 +288,7 @@ export default function StudentDashboard() {
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="text-center md:text-left">
-            <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-1 whitespace-nowrap">
               ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
             </h1>
             <p className="text-emerald-100 font-medium text-xs md:text-sm">
@@ -333,15 +347,17 @@ export default function StudentDashboard() {
 
         {/* ฟอร์มเข้าร่วมชั้นเรียน */}
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-8">
-          <h2 className="text-lg font-black text-slate-800 mb-3">เข้าร่วมชั้นเรียนใหม่</h2>
+          <h2 className="text-lg font-black text-slate-800 mb-1">เข้าร่วมชั้นเรียนใหม่</h2>
+          <p className="text-xs text-slate-400 mb-3">กรอกรหัสเข้าร่วม (Join Code 6 หลัก) ที่ได้รับจากอาจารย์ผู้สอน</p>
           <form onSubmit={handleJoinClick} className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
-              placeholder="กรอกรหัส Classroom"
+              placeholder="กรอกรหัส JOIN CODE 6 หลัก (เช่น PNW11W)"
               required
-              className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-              value={courseCode}
-              onChange={(e) => setCourseCode(e.target.value)}
+              maxLength={10}
+              className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-mono font-bold text-slate-700 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
             />
             <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm transition-all cursor-pointer">
               JOIN
@@ -350,7 +366,7 @@ export default function StudentDashboard() {
           {status && <p className="mt-3 text-xs font-bold text-emerald-700">{status}</p>}
         </div>
 
-        {/* รายการวิชาที่ลงทะเบียนแล้ว (คลิกเพื่อไปยัง URL หน้าใหม่) */}
+        {/* รายการวิชาที่ลงทะเบียนแล้ว */}
         <h2 className="text-xl font-black text-slate-800 mb-4">วิชาที่ลงทะเบียนแล้ว</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {myCourses.length > 0 ? (
@@ -363,14 +379,16 @@ export default function StudentDashboard() {
                 <div>
                   <div className="flex justify-between items-start mb-2">
                     <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border border-emerald-100 font-mono">
-                      {course.courseCode}
+                      {course.courseCode} (กลุ่ม {course.section || '1'})
                     </span>
                     <span className="text-[10px] text-emerald-600 font-bold uppercase">• Active</span>
                   </div>
                   <h3 className="text-base font-bold text-slate-800 mb-1 group-hover:text-emerald-700 transition-colors">
                     {course.courseName}
                   </h3>
-                  <p className="text-slate-400 text-xs italic mb-4">คลิกเพื่อดูรายละเอียดและประวัติการเข้าเรียน →</p>
+                  <div className="text-xs text-slate-500 mb-4 font-medium flex gap-2 items-center">
+                    <span>เทอม {course.semester}/{course.academicYear}</span>
+                  </div>
                 </div>
                 <div className="w-full bg-slate-50 text-slate-500 text-center py-2 rounded-xl text-[10px] font-bold border border-slate-100 uppercase group-hover:bg-emerald-50 group-hover:text-emerald-700 transition-colors">
                   ดูรายงานการเข้าเรียน
@@ -410,8 +428,8 @@ export default function StudentDashboard() {
 
             <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
               <div className="flex justify-between">
-                <span className="text-slate-400 font-bold">รหัสวิชาที่จะเข้าร่วม:</span>
-                <span className="font-mono font-bold text-emerald-700">{courseCode.trim()}</span>
+                <span className="text-slate-400 font-bold">Join Code ที่จะเข้าร่วม:</span>
+                <span className="font-mono font-bold text-emerald-700 uppercase">{joinCode.trim()}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">สถานะใบหน้า:</span>
@@ -456,8 +474,8 @@ export default function StudentDashboard() {
 
             <h3 className="text-xl font-black text-slate-800">ยืนยันการเข้าร่วมชั้นเรียน</h3>
             <p className="text-xs text-slate-400 mt-1">
-              คุณต้องการเข้าร่วมรายวิชารหัส <br />
-              <span className="font-mono font-bold text-emerald-700 text-sm">{courseCode.trim()}</span> ใช่หรือไม่?
+              คุณต้องการเข้าร่วมรายวิชารหัส Join Code <br />
+              <span className="font-mono font-bold text-emerald-700 text-sm uppercase">{joinCode.trim()}</span> ใช่หรือไม่?
             </p>
 
             <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">

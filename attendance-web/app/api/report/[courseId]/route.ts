@@ -1,4 +1,4 @@
-// attendance-web/app/api/report/[id]/route.ts
+// attendance-web/app/api/report/[courseId]/route.ts
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
@@ -130,6 +130,7 @@ export async function GET(
         let present = 0;
         let late = 0;
         let leave = 0;
+        let pending = 0;
         let absent = 0;
 
         course.students.forEach((student) => {
@@ -137,6 +138,7 @@ export async function GET(
           if (st === 'มาเรียน') present++;
           else if (st === 'มาสาย') late++;
           else if (st === 'ลา') leave++;
+          else if (st === 'รอตรวจสอบ') pending++;
           else absent++;
         });
 
@@ -154,6 +156,7 @@ export async function GET(
           present,
           late,
           leave,
+          pending,
           absent,
           totalCount: totalStudentsInClass,
           percentage,
@@ -240,7 +243,7 @@ export async function GET(
       ],
     });
 
-    let present = 0, late = 0, leave = 0, absent = 0;
+    let present = 0, late = 0, leave = 0, pending = 0, absent = 0;
 
     const reportList = course.students.map((student: any) => {
       const record = attendances.find((att: any) => att.studentId === student.id);
@@ -252,6 +255,7 @@ export async function GET(
       if (status === 'มาเรียน') present++;
       else if (status === 'มาสาย') late++;
       else if (status === 'ลา') leave++;
+      else if (status === 'รอตรวจสอบ') pending++;
       else absent++;
 
       const displayName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
@@ -279,6 +283,7 @@ export async function GET(
         present,
         late,
         leave,
+        pending,
         absent,
       },
     });

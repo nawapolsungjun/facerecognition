@@ -13,7 +13,14 @@ export default function TeacherDashboard() {
   const [isCoursesLoading, setIsCoursesLoading] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newCourse, setNewCourse] = useState({ code: "", name: "" });
+  // เพิ่มฟิลด์ section, semester, academicYear ใน state สร้างวิชา
+  const [newCourse, setNewCourse] = useState({ 
+    code: "", 
+    name: "", 
+    section: "1", 
+    semester: "1", 
+    academicYear: "2569" 
+  });
   const [teacherInfo, setTeacherInfo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -262,11 +269,11 @@ export default function TeacherDashboard() {
 
   const handleOpenCourseConfirm = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCourse.code.trim() || !newCourse.name.trim()) {
+    if (!newCourse.code.trim() || !newCourse.name.trim() || !newCourse.section.trim() || !newCourse.academicYear.trim()) {
       setAlertModal({
         show: true,
         title: "ข้อมูลไม่ครบถ้วน",
-        message: "กรุณากรอกรหัสวิชาและชื่อวิชาให้ครบถ้วน",
+        message: "กรุณากรอกข้อมูลรายวิชาให้ครบถ้วน",
         isSuccess: false,
       });
       return;
@@ -289,18 +296,21 @@ export default function TeacherDashboard() {
         body: JSON.stringify({
           courseCode: newCourse.code.trim(),
           courseName: newCourse.name.trim(),
+          section: newCourse.section.trim(),
+          semester: newCourse.semester.trim(),
+          academicYear: newCourse.academicYear.trim(),
         }),
       });
       const data = await res.json();
       if (data.success) {
         setShowCourseConfirmModal(false);
         setIsModalOpen(false);
-        setNewCourse({ code: "", name: "" });
+        setNewCourse({ code: "", name: "", section: "1", semester: "1", academicYear: "2569" });
         loadAllCourses(token);
         setAlertModal({
           show: true,
           title: "สร้างรายวิชาสำเร็จเรียบร้อย",
-          message: `รายวิชา ${newCourse.name.trim()} (${newCourse.code.trim()}) ถูกเพิ่มเข้าสู่ระบบเรียบร้อยแล้ว`,
+          message: `รายวิชา ${newCourse.name.trim()} (กลุ่ม ${newCourse.section}) ถูกเพิ่มเข้าสู่ระบบเรียบร้อยแล้ว`,
           isSuccess: true,
         });
       } else {
@@ -509,6 +519,18 @@ export default function TeacherDashboard() {
                     <h2 className="text-xl font-bold truncate text-white">
                       {course.courseName}
                     </h2>
+                    
+                    {/* แสดงกลุ่มเรียน เทอม/ปี และ Join Code บนการ์ด */}
+                    <div className="mt-2 space-y-1.5 text-xs">
+                      <div className="text-emerald-100 font-medium">
+                        กลุ่ม {course.section || '1'} • เทอม {course.semester || '1'}/{course.academicYear || '2569'}
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 bg-white/20 px-2.5 py-1 rounded-lg font-mono font-bold tracking-wider">
+                        <span>Join Code:</span>
+                        <span className="select-all text-white">{course.joinCode || '-'}</span>
+                      </div>
+                    </div>
+
                     <div className="mt-3 flex items-center gap-2">
                       <span className="bg-white/20 px-2.5 py-0.5 rounded-lg text-xs font-medium">
                         นักศึกษา {course._count?.students || 0} คน
@@ -591,41 +613,83 @@ export default function TeacherDashboard() {
       {/* Modal: สร้างวิชาใหม่ */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 md:p-8 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <h2 className="text-xl font-black text-slate-800 mb-5">
               สร้างรายวิชาใหม่
             </h2>
             <form onSubmit={handleOpenCourseConfirm} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  รหัสวิชา
-                </label>
-                <input
-                  required
-                  type="text"
-                  value={newCourse.code}
-                  onChange={(e) =>
-                    setNewCourse({ ...newCourse, code: e.target.value })
-                  }
-                  placeholder="เช่น CS101"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    รหัสวิชา
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.code}
+                    onChange={(e) =>
+                      setNewCourse({ ...newCourse, code: e.target.value })
+                    }
+                    placeholder="เช่น 5141319"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    ชื่อวิชา
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.name}
+                    onChange={(e) =>
+                      setNewCourse({ ...newCourse, name: e.target.value })
+                    }
+                    placeholder="เช่น สัมมนาทางเทคโนโลยี"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ชื่อวิชา
-                </label>
-                <input
-                  required
-                  type="text"
-                  value={newCourse.name}
-                  onChange={(e) =>
-                    setNewCourse({ ...newCourse, name: e.target.value })
-                  }
-                  placeholder="เช่น ปัญญาประดิษฐ์เบื้องต้น"
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-                />
+
+              {/* Grid 3 ช่องสำหรับ กลุ่มเรียน เทอม ปีการศึกษา */}
+              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/60">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">กลุ่มเรียน (Section)</label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.section}
+                    onChange={(e) => setNewCourse({ ...newCourse, section: e.target.value })}
+                    placeholder="เช่น 1, 2"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ภาคเรียน (Semester)</label>
+                  <select
+                    required
+                    value={newCourse.semester}
+                    onChange={(e) => setNewCourse({ ...newCourse, semester: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="1">เทอม 1</option>
+                    <option value="2">เทอม 2</option>
+                    <option value="3">เทอม 3 (ซัมเมอร์)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ปีการศึกษา</label>
+                  <input
+                    required
+                    type="text"
+                    value={newCourse.academicYear}
+                    onChange={(e) => setNewCourse({ ...newCourse, academicYear: e.target.value })}
+                    placeholder="เช่น 2569"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
+
               <div className="flex gap-3 mt-6 pt-2">
                 <button
                   type="button"
@@ -671,6 +735,14 @@ export default function TeacherDashboard() {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">กลุ่มเรียน:</span>
+                <span className="font-bold text-slate-700">{newCourse.section.trim()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400 font-bold">ปีการศึกษา:</span>
+                <span className="font-bold text-slate-700">{newCourse.semester.trim()}/{newCourse.academicYear.trim()}</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-slate-200">
                 <span className="text-slate-400 font-bold">อาจารย์ผู้สอน:</span>
                 <span className="font-bold text-slate-700">
                   {teacherInfo.displayName}

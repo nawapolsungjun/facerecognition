@@ -12,7 +12,7 @@ export default function AdminCourseStudentsPage() {
 
   const [course, setCourse] = useState<any>(null);
   const [allStudents, setAllStudents] = useState<any[]>([]);
-  const [courseWeeksData, setCourseWeeksData] = useState<any[]>([]);
+  const [historySessions, setHistorySessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,6 +30,9 @@ export default function AdminCourseStudentsPage() {
   const [isEditingCourse, setIsEditingCourse] = useState(false);
   const [editCode, setEditCode] = useState('');
   const [editName, setEditName] = useState('');
+  const [editSection, setEditSection] = useState('1');
+  const [editSemester, setEditSemester] = useState('1');
+  const [editAcademicYear, setEditAcademicYear] = useState('2569');
   const [isSavingCourse, setIsSavingCourse] = useState(false);
 
   // Modal สำหรับยกเลิกนักศึกษาในคลาสเรียน
@@ -65,18 +68,14 @@ export default function AdminCourseStudentsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ดึงข้อมูลรายชื่อนักศึกษาและข้อมูลสรุปสัปดาห์จาก API report แบบเดียวกับหน้า Report หลัก
   const fetchData = useCallback(async () => {
     setLoading(true);
     const token = getAuthToken();
     try {
-      const [resStudents, resWeeks, resHistory] = await Promise.all([
+      const [resStudents, resHistory] = await Promise.all([
         fetch(`/api/admin/courses/${courseId}/students`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`/api/report/${courseId}?mode=weeks`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(() => null),
         fetch(`/api/attendance/history/${courseId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }).catch(() => null)
@@ -86,8 +85,12 @@ export default function AdminCourseStudentsPage() {
       if (json.success && json.data) {
         setCourse(json.data.course);
         setAllStudents(json.data.allStudents || []);
+        
         setEditCode(json.data.course.courseCode || '');
         setEditName(json.data.course.courseName || '');
+        setEditSection(json.data.course.section || '1');
+        setEditSemester(json.data.course.semester || '1');
+        setEditAcademicYear(json.data.course.academicYear || '2569');
       } else {
         setAlertModal({
           show: true,
@@ -97,51 +100,16 @@ export default function AdminCourseStudentsPage() {
         });
       }
 
-      if (resWeeks && resWeeks.ok) {
-        const weeksJson = await resWeeks.ok ? await resWeeks.json() : { success: false, data: [] };
-        if (weeksJson.success && Array.isArray(weeksJson.data)) {
-          setCourseWeeksData(weeksJson.data);
-        }
-      }
-
-      // สำรองข้อมูลประวัติเพื่อใช้จับคู่ชื่อและข้อมูลย่อยถ้าจำเป็น
       if (resHistory && resHistory.ok) {
         const historyJson = await resHistory.json();
-        const rawHistory = Array.isArray(historyJson.data) ? historyJson.data : Array.isArray(historyJson) ? historyJson : [];
-        if (course && course.students) {
-          // ผูก attendances เข้ากับนักศึกษาแต่ละคนให้ตรงกัน
-          const updatedStudents = course.students.map((st: any) => {
-            const stId = String(st.id);
-            const stCode = String(st.studentCode || '').trim();
-            const stAttendances: any[] = [];
-
-            rawHistory.forEach((sess: any) => {
-              const records = sess.attendances || sess.records || [];
-              const matched = records.find((r: any) => {
-                const rId = String(r.studentId || r.student?.id || r.id || '');
-                const rCode = String(r.studentCode || r.student?.studentCode || '').trim();
-                return (stId && rId === stId) || (stCode && rCode === stCode);
-              });
-
-              if (matched) {
-                stAttendances.push({
-                  ...matched,
-                  sessionId: sess.id,
-                  sessionType: sess.sessionType,
-                  timeSlot: sess.timeSlot,
-                  note: sess.note,
-                  createdAt: sess.createdAt || sess.date
-                });
-              }
-            });
-
-            return { ...st, attendances: stAttendances };
-          });
-          setCourse((prev: any) => prev ? { ...prev, students: updatedStudents } : prev);
-        }
+        const rawList = Array.isArray(historyJson.data) ? historyJson.data : Array.isArray(historyJson) ? historyJson : [];
+        const sortedHistory = [...rawList].sort((a: any, b: any) => {
+          return new Date(a.createdAt || a.date).getTime() - new Date(b.createdAt || b.date).getTime();
+        });
+        setHistorySessions(sortedHistory);
       }
     } catch (err) {
-      console.error("Error fetching students:", err);
+      console.error("Error fetching admin course data:", err);
     } finally {
       setLoading(false);
     }
@@ -151,7 +119,6 @@ export default function AdminCourseStudentsPage() {
     if (courseId) fetchData();
   }, [courseId, fetchData]);
 
-  // ฟังก์ชันเปิด Modal รายงานสถิติของนักศึกษา
   const handleOpenStudentReport = (student: any, displayName: string) => {
     setSelectedStudentForReport({
       ...student,
@@ -162,11 +129,11 @@ export default function AdminCourseStudentsPage() {
 
   const handleUpdateCourseDetails = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editCode.trim() || !editName.trim()) {
+    if (!editCode.trim() || !editName.trim() || !editSection.trim() || !editAcademicYear.trim()) {
       setAlertModal({
         show: true,
         title: 'ข้อมูลไม่ครบถ้วน',
-        message: 'กรุณากรอกรหัสวิชาและชื่อวิชาให้ครบถ้วน',
+        message: 'กรุณากรอกข้อมูลรายวิชาให้ครบถ้วน',
         isSuccess: false,
       });
       return;
@@ -181,7 +148,13 @@ export default function AdminCourseStudentsPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ courseCode: editCode.trim(), courseName: editName.trim() })
+        body: JSON.stringify({ 
+          courseCode: editCode.trim(), 
+          courseName: editName.trim(),
+          section: editSection.trim(),
+          semester: editSemester.trim(),
+          academicYear: editAcademicYear.trim()
+        })
       });
       const json = await res.json();
       if (json.success) {
@@ -362,38 +335,136 @@ export default function AdminCourseStudentsPage() {
       });
   }, [course?.students, searchTerm, sortOrder]);
 
-  // ประมวลผลตาราง 15 สัปดาห์มาตรฐานใน Modal ให้ตรงกับตารางรายงานหลัก 100%
+  const cleanRemarkString = (str: string) => {
+    if (!str) return '';
+    return str
+      .replace(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/gi, '')
+      .replace(/\(แก้ไขเวลา[^)]*?\)/gi, '')
+      .trim();
+  };
+
+  // 🚀 Logic คำนวณประวัติ 15 สัปดาห์ดึงจาก historySessions โดยตรงเหมือนฝั่ง Teacher 100%
   const studentWeeklyAttendance = useMemo(() => {
     if (!selectedStudentForReport) return [];
 
-    const studentAtts: any[] = selectedStudentForReport.attendances || [];
+    const studentId = String(selectedStudentForReport.id || '');
+    const studentCode = String(selectedStudentForReport.studentCode || '').trim();
+    const studentName = `${selectedStudentForReport.firstName || ''} ${selectedStudentForReport.lastName || ''}`.trim() || selectedStudentForReport.name || '';
+
+    const uniqueSlots = new Map<string, any>();
+    historySessions.forEach((sess: any) => {
+      const d = new Date(sess.date || sess.createdAt || 0);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${day}`;
+
+      let timeSlot = sess.timeSlot || '';
+      const fullText = `${sess.note || ''} ${sess.timeSlot || ''}`;
+      const timeMatch = fullText.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+
+      if (timeMatch) {
+        timeSlot = `${timeMatch[1]}-${timeMatch[2]}`.replace(/\s+/g, '');
+      } else {
+        const hr = d.getHours();
+        timeSlot = hr < 12 ? '09:00-12:00' : '13:00-16:00';
+      }
+
+      const isComp = sess.sessionType === 'COMPENSATION' || fullText.includes('สอนชดเชย');
+      const sessionType = isComp ? 'COMPENSATION' : 'REGULAR';
+      const slotKey = `${dateStr}_${timeSlot}_${sessionType}`;
+
+      if (!uniqueSlots.has(slotKey)) {
+        uniqueSlots.set(slotKey, {
+          dateStr,
+          timeSlot,
+          sessionType,
+          note: sess.note || '',
+          sessionsList: [sess],
+          rawTimestamp: d.getTime(),
+        });
+      } else {
+        uniqueSlots.get(slotKey).sessionsList.push(sess);
+      }
+    });
+
+    const standardWeeks = Array.from(uniqueSlots.values()).sort(
+      (a, b) => a.rawTimestamp - b.rawTimestamp,
+    );
+
     const totalWeeks = 15;
     const weeksList = [];
 
     for (let i = 0; i < totalWeeks; i++) {
       const weekIndex = i + 1;
-      const sessionSummary = courseWeeksData[i] || null;
+      const weekSession = standardWeeks[i] || null;
 
-      if (sessionSummary) {
-        // ค้นหาเรคคอร์ดที่ตรงกับ sessionId ของสัปดาห์นั้น
-        const matchedAtt = studentAtts.find((att: any) => {
-          return att.sessionId && sessionSummary.sessionId && att.sessionId === sessionSummary.sessionId;
+      if (weekSession) {
+        const studentRecordsInWeek: any[] = [];
+
+        weekSession.sessionsList.forEach((session: any) => {
+          const records = session.attendances || session.records || [];
+          const r = records.find((item: any) => {
+            const rId = String(item.studentId || item.student?.id || item.id || '');
+            const rCode = String(item.studentCode || item.student?.studentCode || '').trim();
+            const rName = `${item.firstName || item.student?.firstName || ''} ${item.lastName || item.student?.lastName || ''}`.trim() || item.name || item.student?.name;
+
+            return (studentId && rId && rId === studentId) ||
+                   (studentCode && rCode && rCode === studentCode) ||
+                   (studentName && rName && rName === studentName);
+          });
+
+          if (r) {
+            studentRecordsInWeek.push(r);
+          }
         });
 
-        // หากไม่เจอด้วย sessionId ให้เทียบจากวันที่
-        const bestRecord = matchedAtt || studentAtts.find((att: any) => {
-          const attDate = new Date(att.date || att.createdAt).toISOString().split('T')[0];
-          return attDate === sessionSummary.rawDate;
-        });
+        let finalStatus = 'ขาดเรียน';
+        let finalRemark = weekSession.note || '';
+
+        if (studentRecordsInWeek.length > 0) {
+          const manuallyEdited = studentRecordsInWeek.find(
+            (r) => (r.remark || '').includes('แก้ไข') || r.isManual === true
+          );
+
+          if (manuallyEdited) {
+            finalStatus = manuallyEdited.status;
+            finalRemark = manuallyEdited.remark;
+          } else {
+            studentRecordsInWeek.sort((a, b) => {
+              const tA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+              const tB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+              return tB - tA;
+            });
+            finalStatus = studentRecordsInWeek[0].status || 'ขาดเรียน';
+            finalRemark = studentRecordsInWeek[0].remark || weekSession.note || '';
+          }
+        }
+
+        let editTimestamp = '';
+        const matchEditTime = finalRemark.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
+        if (matchEditTime) {
+          editTimestamp = matchEditTime[0];
+        }
+
+        let cleanedBase = cleanRemarkString(finalRemark);
+        cleanedBase = cleanedBase.replace(/\[\d{2}:\d{2}-\d{2}:\d{2}( น.)?\]\s*/g, '');
+
+        let formattedRemark = cleanedBase;
+        if (editTimestamp && !formattedRemark.includes(editTimestamp)) {
+          formattedRemark = formattedRemark ? `${formattedRemark} ${editTimestamp}` : editTimestamp;
+        }
+
+        const bestRecord = studentRecordsInWeek[0];
 
         weeksList.push({
           weekNumber: weekIndex,
           isRecorded: true,
-          date: sessionSummary.rawDate || sessionSummary.dateStr,
-          timeLabel: sessionSummary.timeStr || '',
-          isComp: sessionSummary.sessionType === 'COMPENSATION',
-          status: bestRecord ? bestRecord.status : 'ขาดเรียน',
-          remark: bestRecord?.remark || sessionSummary.note || '',
+          date: weekSession.dateStr,
+          timeLabel: weekSession.timeSlot || '',
+          isComp: weekSession.sessionType === 'COMPENSATION',
+          status: finalStatus,
+          remark: formattedRemark,
           recordTime: bestRecord?.createdAt || bestRecord?.date || null
         });
       } else {
@@ -411,7 +482,7 @@ export default function AdminCourseStudentsPage() {
     }
 
     return weeksList;
-  }, [selectedStudentForReport, courseWeeksData]);
+  }, [selectedStudentForReport, historySessions]);
 
   const teacherName = course?.teacher?.firstName
     ? `${course.teacher.firstName} ${course.teacher.lastName || ''}`.trim()
@@ -433,9 +504,6 @@ export default function AdminCourseStudentsPage() {
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
-        </p>
       </header>
 
       {/* 2. Navigation Tabs Bar */}
@@ -475,18 +543,29 @@ export default function AdminCourseStudentsPage() {
                   อาจารย์ผู้สอน: <span className="text-slate-700">{teacherName}</span>
                 </span>
               </div>
-              <h2 className="text-2xl font-black text-slate-800">
-                <span className="font-mono">{course?.courseCode}</span> : {course?.courseName}
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                <span className="font-mono text-emerald-700">{course?.courseCode}</span> {course?.courseName}
               </h2>
+              <div className="flex flex-wrap items-center gap-3 mt-3 text-xs font-bold text-slate-600">
+                <span className="bg-slate-100 px-3 py-1 rounded-md">กลุ่มเรียน: {course?.section || '-'}</span>
+                <span className="bg-slate-100 px-3 py-1 rounded-md">เทอม: {course?.semester || '-'}/{course?.academicYear || '-'}</span>
+                <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-md flex items-center gap-1.5 uppercase tracking-wider shadow-sm">
+                  <span>Join Code:</span> 
+                  <span className="select-all">{course?.joinCode || '-'}</span>
+                </span>
+              </div>
             </div>
             <button
               type="button"
               onClick={() => {
                 setEditCode(course?.courseCode || '');
                 setEditName(course?.courseName || '');
+                setEditSection(course?.section || '1');
+                setEditSemester(course?.semester || '1');
+                setEditAcademicYear(course?.academicYear || '2569');
                 setIsEditingCourse(true);
               }}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
             >
               แก้ไขข้อมูลวิชา
             </button>
@@ -557,7 +636,7 @@ export default function AdminCourseStudentsPage() {
             <button
               type="submit"
               disabled={isSubmitting || !selectedStudentId}
-              className="w-full sm:w-auto bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white px-6 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-xs transition-all whitespace-nowrap disabled:bg-slate-300 cursor-pointer"
+              className="w-full sm:w-auto px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white font-bold text-xs md:text-sm shadow-xs transition-all whitespace-nowrap disabled:bg-slate-300 cursor-pointer"
             >
               {isSubmitting ? 'กำลังบันทึก...' : '+ เพิ่มเข้าวิชา'}
             </button>
@@ -633,8 +712,6 @@ export default function AdminCourseStudentsPage() {
                         </td>
                         <td className="p-4 text-center align-middle">
                           <div className="flex justify-center items-center gap-1.5">
-
-                            {/* 1. ปุ่มดูรายงานสถิติของนักศึกษา (Report Icon) */}
                             <button
                               type="button"
                               onClick={() => handleOpenStudentReport(student, studentName)}
@@ -646,7 +723,6 @@ export default function AdminCourseStudentsPage() {
                               </svg>
                             </button>
 
-                            {/* 2. ปุ่มยกเลิกนักศึกษาในคลาสเรียน (Trash Can Icon) */}
                             <button
                               type="button"
                               onClick={() => setStudentToRemove({ id: student.id, name: studentName })}
@@ -657,7 +733,6 @@ export default function AdminCourseStudentsPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             </button>
-
                           </div>
                         </td>
                       </tr>
@@ -677,7 +752,7 @@ export default function AdminCourseStudentsPage() {
 
       </main>
 
-      {/* 4. Footer ด้านล่าง */}
+      {/* 4. Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
@@ -701,29 +776,67 @@ export default function AdminCourseStudentsPage() {
             </div>
 
             <form onSubmit={handleUpdateCourseDetails} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">รหัสวิชา</label>
-                <input
-                  type="text"
-                  required
-                  value={editCode}
-                  onChange={(e) => setEditCode(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-slate-700 block mb-1">รหัสวิชา</label>
+                  <input
+                    type="text"
+                    required
+                    value={editCode}
+                    onChange={(e) => setEditCode(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+                
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-slate-700 block mb-1">ชื่อรายวิชา</label>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                </div>
+
+                <div className="col-span-2 grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200/60 mt-1">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">กลุ่มเรียน (Section)</label>
+                    <input
+                      type="text"
+                      required
+                      value={editSection}
+                      onChange={(e) => setEditSection(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-bold text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">ภาคเรียน</label>
+                    <select
+                      required
+                      value={editSemester}
+                      onChange={(e) => setEditSemester(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-bold text-xs text-slate-800 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                    >
+                      <option value="1">เทอม 1</option>
+                      <option value="2">เทอม 2</option>
+                      <option value="3">เทอม 3 (ซัมเมอร์)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 block mb-1">ปีการศึกษา</label>
+                    <input
+                      type="text"
+                      required
+                      value={editAcademicYear}
+                      onChange={(e) => setEditAcademicYear(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-bold text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ชื่อรายวิชา</label>
-                <input
-                  type="text"
-                  required
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-3">
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setIsEditingCourse(false)}
@@ -774,12 +887,11 @@ export default function AdminCourseStudentsPage() {
         </div>
       )}
 
-      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา (สำหรับ Admin - แสดงผล 15 สัปดาห์มาตรฐาน) */}
+      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา */}
       {isReportModalOpen && selectedStudentForReport && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-xl w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
 
-            {/* Header ของ Modal */}
             <div className="flex justify-between items-start pb-4 mb-4 border-b border-slate-100">
               <div>
                 <h2 className="text-xl font-black text-slate-800 leading-tight">
@@ -798,16 +910,17 @@ export default function AdminCourseStudentsPage() {
               </button>
             </div>
 
-            {/* กล่องสรุปสถานะการเข้าเรียน 4 ช่อง */}
-            <div className="grid grid-cols-4 gap-2 mb-4">
+            {/* กล่องสรุปสถานะการเข้าเรียน 5 ช่อง */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
               {[
                 { label: 'มาเรียน', val: 'มาเรียน', color: 'text-emerald-700', bg: 'bg-emerald-50' },
                 { label: 'มาสาย', val: 'มาสาย', color: 'text-amber-700', bg: 'bg-amber-50' },
                 { label: 'ลา', val: 'ลา', color: 'text-blue-700', bg: 'bg-blue-50' },
+                { label: 'รอตรวจสอบ', val: 'รอตรวจสอบ', color: 'text-purple-700', bg: 'bg-purple-50' },
                 { label: 'ขาดเรียน', val: 'ขาดเรียน', color: 'text-red-700', bg: 'bg-red-50' }
               ].map((item) => (
                 <div key={item.val} className={`${item.bg} p-2.5 rounded-2xl text-center border border-slate-100`}>
-                  <p className="text-[10px] font-bold text-slate-500 mb-0.5">{item.label}</p>
+                  <p className="text-[10px] font-bold text-slate-500 mb-0.5 whitespace-nowrap">{item.label}</p>
                   <p className={`text-lg font-black ${item.color}`}>
                     {studentWeeklyAttendance.filter((a: any) => a.isRecorded && a.status === item.val).length}
                   </p>
@@ -815,7 +928,6 @@ export default function AdminCourseStudentsPage() {
               ))}
             </div>
 
-            {/* รายการแสดงผลสรุป 15 สัปดาห์มาตรฐานตรงกับตารางรวม */}
             <div className="flex-1 overflow-y-auto pr-1 space-y-2">
               <div className="flex justify-between items-center mb-1">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -827,21 +939,19 @@ export default function AdminCourseStudentsPage() {
               </div>
 
               {studentWeeklyAttendance.map((record: any) => (
-                <div 
-                  key={record.weekNumber} 
-                  className={`flex justify-between items-center p-3.5 rounded-2xl border transition-colors ${
-                    record.isRecorded 
-                      ? 'bg-slate-50 border-slate-200/70 hover:bg-slate-100/60' 
-                      : 'bg-slate-50/40 border-slate-100 opacity-60'
-                  }`}
+                <div
+                  key={record.weekNumber}
+                  className={`flex justify-between items-center p-3.5 rounded-2xl border transition-colors ${record.isRecorded
+                    ? 'bg-slate-50 border-slate-200/70 hover:bg-slate-100/60'
+                    : 'bg-slate-50/40 border-slate-100 opacity-60'
+                    }`}
                 >
-                  <div className="pr-3">
+                  <div className="pr-3 flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                        record.isRecorded 
-                          ? 'bg-emerald-100 text-emerald-800' 
-                          : 'bg-slate-200 text-slate-600'
-                      }`}>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${record.isRecorded
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-slate-200 text-slate-600'
+                        }`}>
                         สัปดาห์ที่ {record.weekNumber}
                       </span>
 
@@ -869,7 +979,7 @@ export default function AdminCourseStudentsPage() {
                           )}
                         </p>
                         {record.remark && (
-                          <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed break-words">
                             {record.remark}
                           </p>
                         )}
@@ -882,15 +992,16 @@ export default function AdminCourseStudentsPage() {
                   </div>
 
                   {record.isRecorded ? (
-                    <span className={`px-3 py-1 rounded-xl text-xs font-bold border shrink-0 ${
-                      record.status === 'มาเรียน'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : record.status === 'มาสาย'
+                    <span className={`px-3 py-1 rounded-xl text-[11px] whitespace-nowrap font-bold border shrink-0 ${record.status === 'มาเรียน'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : record.status === 'มาสาย'
                         ? 'bg-amber-50 text-amber-700 border-amber-200'
                         : record.status === 'ลา'
-                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                        : 'bg-red-50 text-red-700 border-red-200'
-                    }`}>
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : record.status === 'รอตรวจสอบ'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
+                      }`}>
                       {record.status}
                     </span>
                   ) : (
@@ -902,7 +1013,6 @@ export default function AdminCourseStudentsPage() {
               ))}
             </div>
 
-            {/* ปุ่มปิด Modal */}
             <div className="pt-4 mt-3 border-t border-slate-100 flex justify-end">
               <button
                 type="button"
@@ -941,9 +1051,8 @@ export default function AdminCourseStudentsPage() {
                 if (alertModal.onClose) alertModal.onClose();
                 setAlertModal({ show: false, title: '', message: '', isSuccess: true });
               }}
-              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-xs transition-all mx-auto block active:scale-95 cursor-pointer ${
-                alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
-              }`}
+              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-xs transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
+                }`}
             >
               ตกลง
             </button>

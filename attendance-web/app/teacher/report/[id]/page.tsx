@@ -22,8 +22,10 @@ interface CourseInfo {
   courseNameEn?: string;
   credits?: string;
   section?: string;
+  semester?: string;
+  academicYear?: string;
   students?: CourseStudent[];
-  teacher?: { name?: string };
+  teacher?: { firstName?: string; lastName?: string; name?: string } | string;
   teacherDisplayName?: string;
 }
 
@@ -51,6 +53,7 @@ interface DailyReportState {
     late: number;
     absent: number;
     leave: number;
+    pending?: number;
   };
 }
 
@@ -63,6 +66,7 @@ interface WeekSummaryItem {
   late: number;
   leave: number;
   absent: number;
+  pending: number;
   totalCount?: number;
   percentage: number;
   note?: string;
@@ -111,7 +115,7 @@ export default function AttendanceReportPage() {
   const [dailyReport, setDailyReport] = useState<DailyReportState>({
     success: false,
     data: [],
-    summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0 },
+    summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0, pending: 0 },
   });
   const [weeksSummaryData, setWeeksSummaryData] = useState<WeekSummaryItem[]>([]);
   const [historySessions, setHistorySessions] = useState<HistorySession[]>([]);
@@ -144,7 +148,7 @@ export default function AttendanceReportPage() {
     isSuccess: true,
   });
 
-  const ALL_STATUSES = ["มาเรียน", "มาสาย", "ลา", "ขาดเรียน"];
+  const ALL_STATUSES = ["มาเรียน", "มาสาย", "ลา", "รอตรวจสอบ", "ขาดเรียน"];
 
   const getAuthToken = () =>
     localStorage.getItem("teacher_token") || localStorage.getItem("token");
@@ -175,6 +179,22 @@ export default function AttendanceReportPage() {
     const minutes = String(d.getMinutes()).padStart(2, "0");
     return `${hours}:${minutes}`;
   };
+
+  const getTeacherName = () => {
+    if (!courseInfo) return "อาจารย์ผู้สอน";
+    if (courseInfo.teacherDisplayName) return courseInfo.teacherDisplayName;
+    if (courseInfo.teacher) {
+      if (typeof courseInfo.teacher === "string") return courseInfo.teacher;
+      const t = courseInfo.teacher;
+      if (t.firstName || t.lastName) {
+        return `${t.firstName || ""} ${t.lastName || ""}`.trim();
+      }
+      if (t.name) return t.name;
+    }
+    return "อาจารย์ผู้สอน";
+  };
+
+  const teacherName = getTeacherName();
 
   const fetchCourseDetailsAndHistory = useCallback(async () => {
     const token = getAuthToken();
@@ -240,7 +260,7 @@ export default function AttendanceReportPage() {
           setDailyReport({
             success: false,
             data: [],
-            summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0 },
+            summary: { total: 0, present: 0, late: 0, absent: 0, leave: 0, pending: 0 },
           });
         }
 
@@ -320,6 +340,7 @@ export default function AttendanceReportPage() {
     if (!defaultRemark) {
       if (initialNewStatus === "มาสาย") defaultRemark = "มาสาย";
       else if (initialNewStatus === "ลา") defaultRemark = "ลากิจ";
+      else if (initialNewStatus === "รอตรวจสอบ") defaultRemark = "รอตรวจสอบ";
       else if (initialNewStatus === "มาเรียน") defaultRemark = "มาเรียน";
       else if (initialNewStatus === "ขาดเรียน") defaultRemark = "ขาดเรียน";
     }
@@ -379,9 +400,11 @@ export default function AttendanceReportPage() {
 
       if (res.ok) {
         setEditingStudent(null);
-        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
-        fetchWeeksSummary();
-        fetchCourseDetailsAndHistory();
+        await Promise.all([
+          fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType),
+          fetchWeeksSummary(),
+          fetchCourseDetailsAndHistory(),
+        ]);
         setAlertModal({
           show: true,
           title: "แก้ไขข้อมูลเรียบร้อย",
@@ -450,9 +473,11 @@ export default function AttendanceReportPage() {
       });
 
       if (res.ok) {
-        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
-        fetchWeeksSummary();
-        fetchCourseDetailsAndHistory();
+        await Promise.all([
+          fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType),
+          fetchWeeksSummary(),
+          fetchCourseDetailsAndHistory(),
+        ]);
         setAlertModal({
           show: true,
           title: "แก้ไขเวลาเรียบร้อย",
@@ -584,12 +609,13 @@ export default function AttendanceReportPage() {
         rawDate: weekData.rawDate,
         timeStr: weekData.timeStr || "",
         sessionType: weekData.sessionType || "REGULAR",
-        present: weekData.present,
-        late: weekData.late,
-        leave: weekData.leave,
-        absent: weekData.absent,
+        present: weekData.present || 0,
+        late: weekData.late || 0,
+        leave: weekData.leave || 0,
+        pending: weekData.pending || 0,
+        absent: weekData.absent || 0,
         totalCount: weekData.totalCount || totalStudentsCount,
-        percentage: weekData.percentage,
+        percentage: weekData.percentage || 0,
         note: weekData.note || savedLocalNote || "",
         isChecked: true,
       };
@@ -604,6 +630,7 @@ export default function AttendanceReportPage() {
       present: 0,
       late: 0,
       leave: 0,
+      pending: 0,
       absent: 0,
       totalCount: totalStudentsCount || 0,
       percentage: 0,
@@ -652,7 +679,7 @@ export default function AttendanceReportPage() {
     return `รอบเวลา ${slot} น.`;
   };
 
-  // แมปลงเอกสารพิมพ์ PDF (ตั้งลำดับ Priority ให้ 'มาสาย' สูงกว่า 'มาเรียน')
+  // ดึงประวัติเข้าเรียน 15 สัปดาห์ (ยึดตามการแก้ไขของอาจารย์เป็นหลัก)
   const printStudentsData = useMemo(() => {
     const baseStudents =
       courseInfo?.students && courseInfo.students.length > 0
@@ -690,13 +717,13 @@ export default function AttendanceReportPage() {
           dateStr,
           timeSlot,
           sessionType,
-          sessionIds: sess.id ? [String(sess.id)] : [],
+          sessionList: sess ? [sess] : [],
           rawTimestamp: d.getTime(),
         });
       } else {
         const existing = uniqueSlots.get(slotKey);
-        if (sess.id && !existing.sessionIds.includes(String(sess.id))) {
-          existing.sessionIds.push(String(sess.id));
+        if (sess) {
+          existing.sessionList.push(sess);
         }
       }
     });
@@ -716,61 +743,52 @@ export default function AttendanceReportPage() {
 
       standardWeeks.forEach((weekSession: any, wIdx: number) => {
         const weekNum = wIdx + 1;
-        const matchedStatuses: string[] = [];
-
-        historySessions.forEach((session: HistorySession) => {
-          const d = new Date(session.date || session.createdAt || 0);
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, "0");
-          const day = String(d.getDate()).padStart(2, "0");
-          const sessionDateStr = `${y}-${m}-${day}`;
-
-          const isSessionMatch =
-            session.id && weekSession.sessionIds.includes(String(session.id));
-          const isDateMatch = sessionDateStr === weekSession.dateStr;
-
-          if (isSessionMatch || isDateMatch) {
-            const records = session.attendances || session.records || [];
-            const r = records.find((item: AttendanceItem) => {
-              const rId = String(item.studentId || item.student?.id || item.id || "");
-              const rCode = String(item.studentCode || item.student?.studentCode || "").trim();
-              const rName =
-                `${item.firstName || item.student?.firstName || ""} ${item.lastName || item.student?.lastName || ""}`.trim() ||
-                item.name ||
-                item.student?.name;
-
-              const matchId = studentId && rId && rId === studentId;
-              const matchCode = studentCode && rCode && rCode === studentCode;
-              const matchName = studentName && rName && rName === studentName;
-
-              return matchId || matchCode || matchName;
-            });
-
-            if (r?.status) {
-              matchedStatuses.push(r.status);
-            }
+        
+        // รวบรวมเรคคอร์ดทั้งหมดของนักศึกษาในคาบ/สัปดาห์นี้
+        const studentRecordsInWeek: any[] = [];
+        (weekSession.sessionList || []).forEach((session: HistorySession) => {
+          const records = session.attendances || session.records || [];
+          const r = records.find((item: AttendanceItem) => {
+            const rId = String(item.studentId || item.student?.id || item.id || "");
+            const rCode = String(item.studentCode || item.student?.studentCode || "").trim();
+            return (studentId && rId === studentId) || (studentCode && rCode === studentCode);
+          });
+          if (r) {
+            studentRecordsInWeek.push(r);
           }
         });
 
-        if (matchedStatuses.length > 0) {
-          const priority: Record<string, number> = {
-            มาสาย: 5,   // กำหนดน้ำหนักความสำคัญให้ 'มาสาย' สูงสุด
-            มาเรียน: 4,  
-            ลา: 3,
-            ขาดเรียน: 1,
-          };
-          matchedStatuses.sort((a, b) => (priority[b] || 0) - (priority[a] || 0));
-          recordsMap[weekNum] = matchedStatuses[0];
-        } else {
-          recordsMap[weekNum] = "ขาดเรียน";
+        let finalStatus = "ขาดเรียน";
+
+        if (studentRecordsInWeek.length > 0) {
+          // 1. ถ้ามีเรคคอร์ดที่อาจารย์แก้ไขด้วยตนเอง ให้ใช้สถานะนั้นทันที
+          const manuallyEdited = studentRecordsInWeek.find(
+            (r) => (r.remark || "").includes("แก้ไข") || r.isManual === true
+          );
+
+          if (manuallyEdited) {
+            finalStatus = manuallyEdited.status;
+          } else {
+            // 2. ถ้าไม่ได้แก้ไข ให้ดูจากเรคคอร์ดของรอบล่าสุดในคาบนั้น
+            studentRecordsInWeek.sort((a, b) => {
+              const tA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+              const tB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+              return tB - tA;
+            });
+            finalStatus = studentRecordsInWeek[0].status || "ขาดเรียน";
+          }
         }
+
+        recordsMap[weekNum] = finalStatus;
       });
 
       const recordedStatuses = Object.values(recordsMap);
       const presentCount = recordedStatuses.filter((v) => v === "มาเรียน").length;
       const lateCount = recordedStatuses.filter((v) => v === "มาสาย").length;
       const leaveCount = recordedStatuses.filter((v) => v === "ลา").length;
+      const pendingCount = recordedStatuses.filter((v) => v === "รอตรวจสอบ").length;
       const absentCount = recordedStatuses.filter((v) => v === "ขาดเรียน").length;
+      
       const totalRecordedWeeks = standardWeeks.length;
       const percent =
         totalRecordedWeeks > 0
@@ -785,6 +803,7 @@ export default function AttendanceReportPage() {
         totalPresent: presentCount,
         totalLate: lateCount,
         totalLeave: leaveCount,
+        totalPending: pendingCount,
         totalAbsent: absentCount,
         percentage: percent,
       };
@@ -808,13 +827,11 @@ export default function AttendanceReportPage() {
           <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
             ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
           </h1>
-          <p className="text-emerald-100 font-medium text-xs md:text-sm mt-1">
-            วิชา:{" "}
-            <span className="font-bold text-white">
-              {courseInfo?.courseCode || "กำลังโหลด..."}{" "}
-            </span>{" "}
-            {courseInfo?.courseName ? `${courseInfo.courseName}` : ""}
-          </p>
+          <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
+            <p>
+              วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
+            </p>
+          </div>
         </header>
 
         {/* Navigation Tabs Bar */}
@@ -856,22 +873,20 @@ export default function AttendanceReportPage() {
               <button
                 type="button"
                 onClick={() => setReportMode("daily")}
-                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${
-                  reportMode === "daily"
-                    ? "bg-white text-emerald-800 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
+                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${reportMode === "daily"
+                  ? "bg-white text-emerald-800 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+                  }`}
               >
                 รายละเอียดรายวัน
               </button>
               <button
                 type="button"
                 onClick={() => setReportMode("summary")}
-                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${
-                  reportMode === "summary"
-                    ? "bg-white text-emerald-800 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
+                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${reportMode === "summary"
+                  ? "bg-white text-emerald-800 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+                  }`}
               >
                 สถิติรวมทุกสัปดาห์ (15 สัปดาห์)
               </button>
@@ -914,8 +929,8 @@ export default function AttendanceReportPage() {
                     <input
                       type="text"
                       readOnly
-                      value={`${courseInfo?.courseCode || "กำลังโหลด..."} ${courseInfo?.courseName ? `${courseInfo.courseName}` : ""}`}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold outline-none"
+                      value={courseInfo ? `${courseInfo.courseCode || ''} ${courseInfo.courseName || ''} (กลุ่ม ${courseInfo.section || '-'} | เทอม ${courseInfo.semester || '-'}/${courseInfo.academicYear || '-'})` : "กำลังโหลด..."}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold outline-none text-slate-600"
                     />
                   </div>
 
@@ -927,17 +942,18 @@ export default function AttendanceReportPage() {
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      ประวัติการบันทึก ({dailyRoundsCount} รอบ)
+                      ประวัติการบันทึก ({dailyRoundsCount} รอบย่อย)
                     </Link>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-6 border-t border-slate-100">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-100">
                   {[
                     { label: "ทั้งหมด", count: dailyReport.summary?.total || 0, color: "text-slate-600", bg: "bg-slate-50" },
                     { label: "มาเรียน", count: dailyReport.summary?.present || 0, color: "text-emerald-600", bg: "bg-emerald-50/50" },
                     { label: "มาสาย", count: dailyReport.summary?.late || 0, color: "text-amber-600", bg: "bg-amber-50/50" },
                     { label: "ลา", count: dailyReport.summary?.leave || 0, color: "text-blue-600", bg: "bg-blue-50/50" },
+                    { label: "รอตรวจสอบ", count: dailyReport.summary?.pending || 0, color: "text-purple-600", bg: "bg-purple-50/50" },
                     { label: "ขาดเรียน", count: dailyReport.summary?.absent || 0, color: "text-red-600", bg: "bg-red-50/50" },
                   ].map((stat, i) => (
                     <div key={i} className={`${stat.bg} p-3.5 rounded-xl border border-slate-100 text-center`}>
@@ -951,15 +967,14 @@ export default function AttendanceReportPage() {
               {/* ตารางรายชื่อประจำวัน */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 flex gap-2 overflow-x-auto">
-                  {["ทั้งหมด", "มาเรียน", "มาสาย", "ลา", "ขาดเรียน"].map((f) => (
+                  {["ทั้งหมด", "มาเรียน", "มาสาย", "ลา", "รอตรวจสอบ", "ขาดเรียน"].map((f) => (
                     <button
                       key={f}
                       onClick={() => setFilter(f)}
-                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        filter === f
-                          ? "bg-emerald-600 text-white shadow-sm"
-                          : "bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200/60"
-                      }`}
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${filter === f
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200/60"
+                        }`}
                     >
                       {f}
                     </button>
@@ -971,7 +986,7 @@ export default function AttendanceReportPage() {
                     <thead>
                       <tr className="bg-slate-50/80 border-b border-slate-200/60">
                         <th className="p-4 text-xs font-bold text-slate-600 w-14 text-center">ลำดับ</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 w-36">เวลาเช็คชื่อ</th>
+                        <th className="p-4 text-xs font-bold text-slate-600 w-36">เวลาเช็คชื่อล่าสุด</th>
                         <th className="p-4 text-xs font-bold text-slate-600 w-36">รหัสประจำตัว</th>
                         <th className="p-4 text-xs font-bold text-slate-600">ชื่อ - นามสกุล</th>
                         <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">สถานะ</th>
@@ -996,6 +1011,7 @@ export default function AttendanceReportPage() {
                               case "มาเรียน": return "bg-emerald-50 text-emerald-700 border-emerald-200";
                               case "มาสาย": return "bg-amber-50 text-amber-700 border-amber-200";
                               case "ลา": return "bg-blue-50 text-blue-700 border-blue-200";
+                              case "รอตรวจสอบ": return "bg-purple-50 text-purple-700 border-purple-200";
                               case "ขาดเรียน": return "bg-red-50 text-red-700 border-red-200";
                               default: return "bg-slate-50 text-slate-600 border-slate-200";
                             }
@@ -1022,7 +1038,7 @@ export default function AttendanceReportPage() {
                                 <div className="text-xs font-bold text-slate-800">{displayName}</div>
                               </td>
                               <td className="p-4 text-center">
-                                <span className={`inline-flex items-center justify-center px-3 py-1 rounded-xl text-xs font-bold border ${getStatusBadge(item.status)}`}>
+                                <span className={`inline-flex items-center justify-center px-3 py-1 rounded-xl text-xs font-bold whitespace-nowrap border ${getStatusBadge(item.status)}`}>
                                   {item.status || "-"}
                                 </span>
                               </td>
@@ -1090,7 +1106,7 @@ export default function AttendanceReportPage() {
                         <th className="p-4 text-xs font-bold text-slate-600 w-16 text-center">สัปดาห์ที่</th>
                         <th className="p-4 text-xs font-bold text-slate-600 w-44">วันที่และช่วงเวลา</th>
                         <th className="p-4 text-xs font-bold text-slate-600 text-center w-20">นศ.</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-72">สรุปการเข้าเรียน</th>
+                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-[350px]">สรุปการเข้าเรียน (คน)</th>
                         <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">อัตราเข้าเรียน (%)</th>
                         <th className="p-4 text-xs font-bold text-slate-600 text-left">หมายเหตุ / คาบชดเชย</th>
                       </tr>
@@ -1103,22 +1119,35 @@ export default function AttendanceReportPage() {
                           </td>
                         </tr>
                       ) : (
-                        weeksList.map((week) => (
+                        weeksList.map((week) => {
+                          const presentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาเรียน').length;
+                          const lateCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาสาย').length;
+                          const pendingCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'รอตรวจสอบ').length;
+                          const leaveCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ลา').length;
+                          const absentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ขาดเรียน').length;
+                          
+                          const sumRecorded = presentCount + lateCount + pendingCount + leaveCount + absentCount;
+                          const isRecorded = sumRecorded > 0;
+                          
+                          const percent = isRecorded && totalStudentsCount > 0 
+                               ? Math.round(((presentCount + lateCount) / totalStudentsCount) * 100) 
+                               : 0;
+
+                          return (
                           <tr
                             key={week.weekNumber}
-                            className={`transition-colors ${week.isChecked ? "hover:bg-emerald-50/30 bg-white" : "hover:bg-slate-50/80 bg-slate-50/20"}`}
+                            className={`transition-colors ${isRecorded ? "hover:bg-emerald-50/30 bg-white" : "hover:bg-slate-50/80 bg-slate-50/20"}`}
                           >
                             <td
                               className="p-4 text-center cursor-pointer"
                               onClick={() => handleSelectWeek(week)}
-                              title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
+                              title="คลิกเพื่อดูรายละเอียดในรอบนี้"
                             >
                               <span
-                                className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${
-                                  week.isChecked
-                                    ? "bg-emerald-100 text-emerald-800"
-                                    : "bg-slate-100 text-slate-400"
-                                }`}
+                                className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${isRecorded
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-slate-100 text-slate-400"
+                                  }`}
                               >
                                 {week.weekNumber}
                               </span>
@@ -1127,7 +1156,7 @@ export default function AttendanceReportPage() {
                             <td
                               className="p-4 text-xs font-bold text-slate-700 cursor-pointer"
                               onClick={() => handleSelectWeek(week)}
-                              title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
+                              title="คลิกเพื่อดูรายละเอียดในรอบนี้"
                             >
                               {week.dateStr !== "ยังไม่บันทึก" ? (
                                 <div>
@@ -1152,26 +1181,29 @@ export default function AttendanceReportPage() {
                               className="p-4 text-center font-bold font-mono text-emerald-700 text-xs cursor-pointer"
                               onClick={() => handleSelectWeek(week)}
                             >
-                              {week.isChecked ? week.totalCount : "-"}
+                              {isRecorded ? totalStudentsCount : "-"}
                             </td>
 
                             <td
                               className="p-4 text-center cursor-pointer"
                               onClick={() => handleSelectWeek(week)}
                             >
-                              {week.isChecked ? (
-                                <div className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
-                                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-xs font-bold">
-                                    มา {week.present}
+                              {isRecorded ? (
+                                <div className="inline-flex items-center justify-center gap-1.5 flex-wrap">
+                                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-[11px] font-bold">
+                                    มา {presentCount}
                                   </span>
-                                  <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg text-xs font-bold">
-                                    สาย {week.late}
+                                  <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg text-[11px] font-bold">
+                                    สาย {lateCount}
                                   </span>
-                                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg text-xs font-bold">
-                                    ลา {week.leave}
+                                  <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-100 rounded-lg text-[11px] font-bold">
+                                    รอตรวจสอบ {pendingCount}
                                   </span>
-                                  <span className="px-2 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded-lg text-xs font-bold">
-                                    ขาด {week.absent}
+                                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg text-[11px] font-bold">
+                                    ลา {leaveCount}
+                                  </span>
+                                  <span className="px-2 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded-lg text-[11px] font-bold">
+                                    ขาด {absentCount}
                                   </span>
                                 </div>
                               ) : (
@@ -1185,15 +1217,15 @@ export default function AttendanceReportPage() {
                               className="p-4 cursor-pointer"
                               onClick={() => handleSelectWeek(week)}
                             >
-                              {week.isChecked ? (
+                              {isRecorded ? (
                                 <div className="flex flex-col items-center">
                                   <span className="text-xs font-mono font-bold text-emerald-700">
-                                    {week.percentage}%
+                                    {percent}%
                                   </span>
                                   <div className="w-16 h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
                                     <div
                                       className="h-full bg-emerald-500 rounded-full transition-all"
-                                      style={{ width: `${week.percentage}%` }}
+                                      style={{ width: `${percent}%` }}
                                     ></div>
                                   </div>
                                 </div>
@@ -1237,7 +1269,8 @@ export default function AttendanceReportPage() {
                               </div>
                             </td>
                           </tr>
-                        ))
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -1286,6 +1319,7 @@ export default function AttendanceReportPage() {
                       let nextRemark = editingStudent.remark;
                       if (nextStatus === "มาสาย") nextRemark = "มาสาย";
                       else if (nextStatus === "ลา") nextRemark = "ลากิจ";
+                      else if (nextStatus === "รอตรวจสอบ") nextRemark = "รอตรวจสอบ";
                       else if (nextStatus === "มาเรียน") nextRemark = "มาเรียน";
                       else if (nextStatus === "ขาดเรียน") nextRemark = "ขาดเรียน";
 
@@ -1311,7 +1345,7 @@ export default function AttendanceReportPage() {
                     required
                     value={editingStudent.remark}
                     onChange={(e) => setEditingStudent({ ...editingStudent, remark: e.target.value })}
-                    placeholder="เช่น ลากิจ, ลาป่วย, มาสาย, เช็คชื่อรอบที่ 2"
+                    placeholder="เช่น ลากิจ, ลาป่วย, มาสาย, รอตรวจสอบ"
                     className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                   />
                 </div>
@@ -1319,7 +1353,7 @@ export default function AttendanceReportPage() {
                 <div>
                   <span className="text-[11px] font-bold text-slate-400 block mb-1.5">ตัวเลือกด่วน:</span>
                   <div className="flex flex-wrap gap-1.5">
-                    {["ลากิจ", "ลาป่วย", "มาสาย", "เช็คชื่อรอบที่ 2", "เช็ครอบเก็บตก", "สอนชดเชย"].map((tag) => (
+                    {["ลากิจ", "ลาป่วย", "มาสาย", "รอตรวจสอบ", "เช็คชื่อรอบที่ 2", "เช็ครอบเก็บตก"].map((tag) => (
                       <button
                         key={tag}
                         type="button"
@@ -1421,7 +1455,7 @@ export default function AttendanceReportPage() {
 
         {/* Modal แจ้งเตือน */}
         {alertModal.show && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-80 animate-in fade-in duration-200">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
             <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
               {alertModal.isSuccess ? (
                 <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5">
@@ -1443,9 +1477,8 @@ export default function AttendanceReportPage() {
               <button
                 type="button"
                 onClick={() => setAlertModal({ show: false, title: "", message: "", isSuccess: true })}
-                className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
-                  alertModal.isSuccess ? "bg-[#16a34a] hover:bg-[#15803d]" : "bg-[#dc2626] hover:bg-[#b91c1c]"
-                }`}
+                className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? "bg-[#16a34a] hover:bg-[#15803d]" : "bg-[#dc2626] hover:bg-[#b91c1c]"
+                  }`}
               >
                 ตกลง
               </button>
@@ -1460,14 +1493,11 @@ export default function AttendanceReportPage() {
           courseCode: courseInfo?.courseCode || "",
           courseName: courseInfo?.courseName || "",
           courseNameEn: courseInfo?.courseNameEn || "",
-          teacherName:
-            courseInfo?.teacher?.name ||
-            courseInfo?.teacherDisplayName ||
-            "อาจารย์ผู้สอน",
+          teacherName: teacherName,
           credits: courseInfo?.credits || "3 (3-0-6)",
           section: courseInfo?.section || "1",
-          academicYear: "2569",
-          semester: "1",
+          academicYear: courseInfo?.academicYear || "2569",
+          semester: courseInfo?.semester || "1",
           faculty: "คณะบริหารธุรกิจ",
           department: "สาขาวิชานวัตกรรมระบบสารสนเทศ",
         }}

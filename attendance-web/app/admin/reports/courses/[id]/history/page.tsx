@@ -11,7 +11,16 @@ export default function AdminCourseHistoryPage() {
   const filterDateParam = searchParams.get('date');
   const filterTimeSlotParam = searchParams.get('timeSlot'); // รับพารามิเตอร์ช่วงเวลา (เช่น 09:00-11:00)
 
-  const [courseInfo, setCourseInfo] = useState<{ courseName: string; courseCode: string; teacher?: any } | null>(null);
+  // เพิ่ม properties ใหม่ (section, semester, academicYear) ลงใน type ของ courseInfo
+  const [courseInfo, setCourseInfo] = useState<{
+    courseName: string;
+    courseCode: string;
+    section?: string;
+    semester?: string;
+    academicYear?: string;
+    teacher?: any
+  } | null>(null);
+
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSessionDetail, setSelectedSessionDetail] = useState<any | null>(null);
@@ -93,22 +102,43 @@ export default function AdminCourseHistoryPage() {
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <p className="text-emerald-100 font-medium text-xs md:text-sm">
-          สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
-        </p>
+        <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
+          <p>
+            วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
+          </p>
+        </div>
       </header>
 
+      <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
+        <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
+          <button
+            type="button"
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm bg-white text-slate-800 shadow rounded-t-xl"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            ประวัติการบันทึก
+          </button>
+        </div>
+      </nav>
       {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
             <div>
               <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
-              <p className="text-xl font-black text-slate-800">
-                วิชา: <span className="text-xl font-black text-slate-800">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}
-              </p>
+              <div className="text-xl font-black text-slate-800 flex flex-wrap items-center gap-2 mt-1">
+                <span>วิชา: <span className="text-emerald-700 font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}</span>
+                {/* เพิ่มการแสดงกลุ่มเรียน และ ปีการศึกษา */}
+                {courseInfo && (
+                  <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-bold border border-slate-200">
+                    กลุ่ม {courseInfo.section || '-'} | เทอม {courseInfo.semester || '-'}/{courseInfo.academicYear || '-'}
+                  </span>
+                )}
+              </div>
               {(filterDateParam || filterTimeSlotParam) && (
-                <p className="text-xs text-slate-500 font-bold mt-0.5">
+                <p className="text-xs text-slate-500 font-bold mt-2">
                   {filterDateParam && (
                     <>
                       กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
@@ -273,7 +303,7 @@ export default function AdminCourseHistoryPage() {
             {/* รายการรายชื่อนักศึกษา */}
             <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-2xl overflow-hidden mb-5">
               {(selectedSessionDetail.attendances || selectedSessionDetail.records) &&
-              (selectedSessionDetail.attendances?.length > 0 || selectedSessionDetail.records?.length > 0) ? (
+                (selectedSessionDetail.attendances?.length > 0 || selectedSessionDetail.records?.length > 0) ? (
                 (selectedSessionDetail.attendances || selectedSessionDetail.records).map((att: any, idx: number) => {
                   const studentName =
                     att.student?.name ||
@@ -301,15 +331,14 @@ export default function AdminCourseHistoryPage() {
                         )}
                       </div>
                       <span
-                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${
-                          att.status === 'มาเรียน'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : att.status === 'มาสาย'
+                        className={`text-xs font-bold px-3 py-1 rounded-xl border shrink-0 ${att.status === 'มาเรียน'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : att.status === 'มาสาย'
                             ? 'bg-amber-50 text-amber-700 border-amber-200'
                             : att.status === 'ลา'
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : 'bg-red-50 text-red-700 border-red-200'
-                        }`}
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-red-50 text-red-700 border-red-200'
+                          }`}
                       >
                         {att.status}
                       </span>

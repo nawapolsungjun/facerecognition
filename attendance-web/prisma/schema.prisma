@@ -1,3 +1,5 @@
+// attendance-web/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,6 +9,8 @@ datasource db {
   url      = "file:./dev.db"
 }
 
+// เลิกใช้ Enum ตามความต้องการเดิม แล้วเปลี่ยนไปใช้ String ปกติใน model แทน 
+// แต่สำหรับ Role ยังคงเก็บไว้ตามเดิมที่คุณใช้งานอยู่
 enum Role {
   ADMIN
   TEACHER
@@ -50,20 +54,31 @@ model Teacher {
 }
 
 model Course {
-  id          String   @id @default(cuid())
-  courseCode  String   @unique
-  courseName  String
-  status      String   @default("ACTIVE")
+  id           String   @id @default(cuid())
   
-  teacherId   Int
-  teacher     Teacher  @relation(fields: [teacherId], references: [id])
+  // 🚀 1. ปรับปรุง: เอา @unique ออกจาก courseCode เพื่อให้อาจารย์ 1 คน หรืออาจารย์หลายคนเปิดสอนวิชาเดียวกันซ้ำได้
+  courseCode   String   
+  courseName   String
   
-  students    Student[]
-  attendances Attendance[]
-  sessions    AttendanceSession[] // เชื่อมโยงกับรอบการเช็คชื่อ
+  // 🚀 2. เพิ่มเติม: โครงสร้างสำหรับจัดการชั้นเรียน (Classroom Instance)
+  section      String   @default("1") // กลุ่มเรียน เช่น "1", "2"
+  semester     String   // ภาคเรียน เช่น "1", "2", "3" (ซัมเมอร์)
+  academicYear String   // ปีการศึกษา เช่น "2569"
   
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt 
+  // 🚀 3. เพิ่มเติม: รหัสเข้าชั้นเรียนสำหรับให้นักศึกษากรอกเพื่อ Join Class
+  joinCode     String   @unique
+
+  status       String   @default("ACTIVE") // 'ACTIVE', 'ARCHIVED'
+  
+  teacherId    Int
+  teacher      Teacher  @relation(fields: [teacherId], references: [id])
+  
+  students     Student[]
+  attendances  Attendance[]
+  sessions     AttendanceSession[] // เชื่อมโยงกับรอบการเช็คชื่อ
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt 
 }
 
 model Student {
@@ -88,6 +103,11 @@ model AttendanceSession {
   imageUrl    String?      // Path หรือ URL รูปภาพที่ใช้อัปโหลดเช็คชื่อ
   note        String?      // หมายเหตุเพิ่มเติมของรอบนั้นๆ
   
+  // 🚀 เพิ่มเติม: เพื่อช่วยในการจัดกลุ่มสัปดาห์ (คาบปกติ / คาบชดเชย) 
+  // และให้ระบุเวลาเช็คชื่อของรอบนั้นๆ ชัดเจน
+  sessionType String       @default("REGULAR") // 'REGULAR', 'COMPENSATION'
+  timeSlot    String?      // ช่วงเวลาเรียน เช่น "09:00-12:00"
+
   courseId    String
   course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   
@@ -98,25 +118,25 @@ model AttendanceSession {
 }
 
 model Attendance {
-  id         Int      @id @default(autoincrement())
-  date       DateTime @default(now()) 
-  status     String   
-  imagePath  String?  
+  id          Int      @id @default(autoincrement())
+  date        DateTime @default(now()) 
+  status      String   
+  imagePath   String?  
   
   // ฟิลด์สำหรับบันทึกการแก้ไขด้วยตนเอง
-  isManual   Boolean  @default(false)
-  remark     String?  // เหตุผลหรือหมายเหตุ เช่น "ลาป่วย มีใบรับรองแพทย์"
-  updatedAt  DateTime @updatedAt
+  isManual    Boolean  @default(false)
+  remark      String?  // เหตุผลหรือหมายเหตุ เช่น "ลาป่วย มีใบรับรองแพทย์"
+  updatedAt   DateTime @updatedAt
 
-  studentId  Int
-  student    Student  @relation(fields: [studentId], references: [id])
+  studentId   Int
+  student     Student  @relation(fields: [studentId], references: [id])
   
-  courseId   String
-  course     Course   @relation(fields: [courseId], references: [id])
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id])
 
   // เชื่อมโยงกับรอบการเช็คชื่อแบบ Optional
-  sessionId  String?
-  session    AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  sessionId   String?
+  session     AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
-  createdAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
 }
