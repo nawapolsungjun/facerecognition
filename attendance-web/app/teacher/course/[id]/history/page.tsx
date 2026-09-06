@@ -1,7 +1,7 @@
 // attendance-web/app/teacher/course/[id]/history/page.tsx
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 function parseSessionImages(rawImageUrl: string | null | undefined): string[] {
@@ -28,19 +28,21 @@ function parseSessionImages(rawImageUrl: string | null | undefined): string[] {
 }
 
 export default function AttendanceHistoryPage() {
+  const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const courseId = params.id as string;
   const filterDateParam = searchParams.get('date');
   const filterTimeSlotParam = searchParams.get('timeSlot');
 
-  // เพิ่มรองรับ section, semester, academicYear
   const [courseInfo, setCourseInfo] = useState<{
     courseName: string;
     courseCode: string;
     section?: string;
     semester?: string;
     academicYear?: string;
+    joinCode?: string;
+    teacher?: any;
   } | null>(null);
 
   const [sessions, setSessions] = useState<any[]>([]);
@@ -64,7 +66,9 @@ export default function AttendanceHistoryPage() {
           courseCode: json.data.courseCode,
           section: json.data.section,
           semester: json.data.semester,
-          academicYear: json.data.academicYear
+          academicYear: json.data.academicYear,
+          joinCode: json.data.joinCode,
+          teacher: json.data.teacher
         });
       }
     } catch (err) {
@@ -132,33 +136,32 @@ export default function AttendanceHistoryPage() {
     }
   }, [courseId, fetchCourseInfo, fetchHistory]);
 
+  const teacherName = courseInfo?.teacher?.firstName
+    ? `${courseInfo.teacher.firstName} ${courseInfo.teacher.lastName || ''}`.trim()
+    : courseInfo?.teacher?.name || 'ไม่ระบุอาจารย์';
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
 
       {/* Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
-        <div className="absolute top-6 left-6">
-          <Link
-            href={`/teacher/report/${courseId}`}
-            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
-          >
-            ← Back to Report
-          </Link>
-        </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
-          <p>
-            วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
-          </p>
-        </div>
       </header>
 
       {/* Navigation Tabs Bar */}
       <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
-          
+          <Link
+            href={`/teacher/report/${courseId}`}
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            รายงานการเข้าเรียน
+          </Link>
           <button
             type="button"
             className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm bg-white text-slate-800 shadow rounded-t-xl"
@@ -172,40 +175,66 @@ export default function AttendanceHistoryPage() {
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
-            <div className="text-xl font-black text-slate-800 flex flex-wrap items-center gap-2 mt-1">
-              <span>วิชา: <span className="font-mono text-emerald-700">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}</span>
-              {/* แสดงกลุ่มเรียนและภาคเรียน */}
-              {courseInfo && (
-                <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-bold border border-slate-200">
-                  กลุ่ม {courseInfo.section || '-'} | เทอม {courseInfo.semester || '-'}/{courseInfo.academicYear || '-'}
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
+        {/* ปุ่มย้อนกลับ */}
+        <div>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+          >
+            ← ย้อนกลับ
+          </button>
+        </div>
+
+        {/* การ์ดข้อมูลวิชา (สไตล์เดียวกับหน้า Admin) */}
+        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs text-slate-400 font-bold">
+                  อาจารย์ผู้สอน: <span className="text-slate-700">{teacherName}</span>
                 </span>
-              )}
-            </div>
-            {(filterDateParam || filterTimeSlotParam) && (
-              <p className="text-xs text-slate-500 font-bold mt-2">
-                {filterDateParam && (
-                  <>
-                    กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
-                  </>
-                )}
-                {filterTimeSlotParam && (
-                  <span className="ml-2">
-                    ช่วงเวลา: <span className="text-emerald-700 font-mono">[{filterTimeSlotParam} น.]</span>
+              </div>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                <span className="font-mono text-emerald-700">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName || ''}
+              </h2>
+              <div className="flex flex-wrap items-center gap-3 mt-3 text-xs font-bold text-slate-600">
+                <span className="bg-slate-100 px-3 py-1 rounded-md">กลุ่มเรียน: {courseInfo?.section || '-'}</span>
+                <span className="bg-slate-100 px-3 py-1 rounded-md">เทอม: {courseInfo?.semester || '-'}/{courseInfo?.academicYear || '-'}</span>
+                {courseInfo?.joinCode && (
+                  <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-md flex items-center gap-1.5 uppercase tracking-wider shadow-sm">
+                    <span>Join Code:</span> 
+                    <span className="select-all">{courseInfo.joinCode}</span>
                   </span>
                 )}
-                <Link href={`/teacher/course/${courseId}/history`} className="ml-2 text-xs text-slate-400 hover:text-slate-600 underline">
-                  (แสดงทั้งหมด)
-                </Link>
-              </p>
-            )}
+              </div>
+
+              {(filterDateParam || filterTimeSlotParam) && (
+                <p className="text-xs text-slate-500 font-bold mt-3 pt-3 border-t border-slate-100">
+                  {filterDateParam && (
+                    <>
+                      กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
+                    </>
+                  )}
+                  {filterTimeSlotParam && (
+                    <span className="ml-2">
+                      ช่วงเวลา: <span className="text-emerald-700 font-mono">[{filterTimeSlotParam} น.]</span>
+                    </span>
+                  )}
+                  <Link href={`/teacher/course/${courseId}/history`} className="ml-2 text-xs text-slate-400 hover:text-slate-600 underline">
+                    (แสดงทั้งหมด)
+                  </Link>
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col items-end gap-2">
+              <span className="text-xs font-bold px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                บันทึกแล้วทั้งหมด {sessions.length} รอบ
+              </span>
+            </div>
           </div>
-          <span className="bg-emerald-50 text-emerald-700 font-bold text-xs px-3.5 py-1.5 rounded-xl border border-emerald-100">
-            บันทึกแล้วทั้งหมด {sessions.length} รอบ
-          </span>
         </div>
 
         {loading ? (
@@ -213,7 +242,7 @@ export default function AttendanceHistoryPage() {
             กำลังโหลดประวัติการเช็คชื่อ...
           </div>
         ) : sessions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
             {sessions.map((session, index) => {
               const imageList = parseSessionImages(session.imageUrl);
               const roundNum = session.roundNumber || session.round || (sessions.length - index);
@@ -308,8 +337,8 @@ export default function AttendanceHistoryPage() {
 
       {/* Modal แสดงรายละเอียดการเช็คชื่อ */}
       {selectedSession && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-black text-lg text-slate-800">

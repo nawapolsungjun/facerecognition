@@ -12,10 +12,44 @@ const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000
 // ลำดับมุมและท่าทางที่ต้องการให้ตรวจจับ
 const SCAN_STEPS = [
   { id: 'STRAIGHT', label: 'มองตรงไปที่กล้อง (หน้าตรง)', hint: 'กรุณามองตรงระดับสายตากับกล้อง' },
-  { id: 'LEFT', label: 'หันหน้าไปทางซ้าย', hint: 'เอียงใบหน้าไปทางซ้ายของท่านเล็กน้อย' },
-  { id: 'RIGHT', label: 'หันหน้าไปทางขวา', hint: 'เอียงใบหน้าไปทางขวาของท่านเล็กน้อย' },
+  { id: 'LEFT', label: 'หันหน้าไปทางซ้าย 45 องศา', hint: 'เอียงใบหน้าไปทางซ้ายของท่านประมาณ 45 องศา' },
+  { id: 'RIGHT', label: 'หันหน้าไปทางขวา 45 องศา', hint: 'เอียงใบหน้าไปทางขวาของท่านประมาณ 45 องศา' },
   { id: 'DOWN', label: 'ก้มหน้าลงเล็กน้อย', hint: 'ก้มศีรษะลงเบาๆ ให้เห็นมุมก้ม' },
   { id: 'UP', label: 'เงยหน้าขึ้นเล็กน้อย', hint: 'เชิดคางขึ้นเบาๆ ให้เห็นมุมเงย' },
+];
+
+// ข้อมูลภาพตัวอย่างท่าทางใบหน้าแนะนำ (ดึงจากไฟล์ ex1.png ถึง ex5.png ในโฟลเดอร์ public)
+const POSE_GUIDES = [
+  {
+    title: 'หน้าตรง',
+    angle: '0°',
+    desc: 'มองตรงระดับสายตา',
+    imgSrc: '/ex1.png', 
+  },
+  {
+    title: 'หันซ้าย',
+    angle: '45°',
+    desc: 'เอียงซ้ายพอประมาณ',
+    imgSrc: '/ex2.png',
+  },
+  {
+    title: 'หันขวา',
+    angle: '45°',
+    desc: 'เอียงขวาพอประมาณ',
+    imgSrc: '/ex3.png',
+  },
+  {
+    title: 'ก้มหน้า',
+    angle: '15°-20°',
+    desc: 'ก้มศีรษะลงเบาๆ',
+    imgSrc: '/ex4.png',
+  },
+  {
+    title: 'เงยหน้า',
+    angle: '15°-20°',
+    desc: 'เชิดคางขึ้นเล็กน้อย',
+    imgSrc: '/ex5.png',
+  },
 ];
 
 export default function ReEnrollPage() {
@@ -44,19 +78,30 @@ export default function ReEnrollPage() {
   const isCapturingRef = useRef(false);
   const poseHoldCounterRef = useRef(0);
 
-  // State สำหรับ Custom Alert Modal
-  const [alertModal, setAlertModal] = useState<{
+  // State สำหรับ Toast Alert Message ลอยตรงกลางด้านบน
+  const [toast, setToast] = useState<{
     show: boolean;
+    type: 'success' | 'error';
     title: string;
     message: string;
-    isSuccess?: boolean;
     onClose?: () => void;
   }>({
     show: false,
+    type: 'success',
     title: '',
     message: '',
-    isSuccess: true,
   });
+
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((type: 'success' | 'error', title: string, message: string, onClose?: () => void, duration = 3500) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, type, title, message, onClose });
+    toastTimerRef.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, show: false }));
+      if (onClose) onClose();
+    }, duration);
+  }, []);
 
   useEffect(() => {
     userRef.current = user;
@@ -87,12 +132,8 @@ export default function ReEnrollPage() {
     const token = localStorage.getItem('student_token');
 
     if (!savedUser) {
-      setAlertModal({
-        show: true,
-        title: 'ไม่พบเซสชัน',
-        message: 'กรุณาเข้าสู่ระบบใหม่ก่อนทำรายการ',
-        isSuccess: false,
-        onClose: () => router.push('/student/login'),
+      showToast('error', 'ไม่พบเซสชัน', 'กรุณาเข้าสู่ระบบใหม่ก่อนทำรายการ', () => {
+        router.push('/student/login');
       });
       return;
     }
@@ -124,18 +165,13 @@ export default function ReEnrollPage() {
     };
 
     fetchLatestProfile();
-  }, [router]);
+  }, [router, showToast]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const selectedFiles = e.target.files;
       if (selectedFiles.length < 3) {
-        setAlertModal({
-          show: true,
-          title: 'คำแนะนำการอัปโหลด',
-          message: 'เพื่อความแม่นยำ กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป',
-          isSuccess: false,
-        });
+        showToast('error', 'คำแนะนำการอัปโหลด', 'เพื่อความแม่นยำ กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป');
       }
       setFiles(selectedFiles);
       const fileArray = Array.from(selectedFiles).map(file => URL.createObjectURL(file));
@@ -206,24 +242,15 @@ export default function ReEnrollPage() {
       const dbResult = await dbResponse.json();
       if (dbResult.success) {
         setStatus('อัปเดตใบหน้าสำเร็จเรียบร้อย');
-        setAlertModal({
-          show: true,
-          title: 'อัปเดตข้อมูลสำเร็จ',
-          message: 'อัปเดตข้อมูลโครงสร้างใบหน้าใหม่เรียบร้อย ระบบจะพาคุณไปที่ Dashboard',
-          isSuccess: true,
-          onClose: () => router.replace('/student/dashboard'),
+        showToast('success', 'อัปเดตข้อมูลสำเร็จ', 'อัปเดตข้อมูลโครงสร้างใบหน้าใหม่เรียบร้อย ระบบจะพาคุณไปที่ Dashboard', () => {
+          router.replace('/student/dashboard');
         });
       } else {
         throw new Error(dbResult.error || 'ไม่สามารถอัปเดตใบหน้าได้');
       }
     } catch (err: any) {
       setStatus(`ข้อผิดพลาด: ${err.message}`);
-      setAlertModal({
-        show: true,
-        title: 'เกิดข้อผิดพลาด',
-        message: err.message || 'ไม่สามารถอัปเดตใบหน้าได้',
-        isSuccess: false,
-      });
+      showToast('error', 'เกิดข้อผิดพลาด', err.message || 'ไม่สามารถอัปเดตใบหน้าได้');
       setIsScanningActive(false);
     } finally {
       setIsLoading(false);
@@ -391,38 +418,52 @@ export default function ReEnrollPage() {
 
   const handleOpenConfirm = () => {
     if (regMode === 'upload' && (!files || files.length < 3)) {
-      setAlertModal({
-        show: true,
-        title: 'ข้อมูลไม่ครบถ้วน',
-        message: 'กรุณาเลือกรูปภาพอย่างน้อย 3 รูปขึ้นไป',
-        isSuccess: false,
-      });
+      showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณาเลือกรูปภาพอย่างน้อย 3 รูปขึ้นไป');
       return;
     }
     setShowConfirmModal(true);
   };
 
-  const handleCloseAlertModal = () => {
-    const callback = alertModal.onClose;
-    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
-    if (callback) {
-      callback();
-    }
-  };
-
   return (
-    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
+    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
+
+      {/* Toast Alert Message ลอยตรงกลางด้านบน (Top-Middle) */}
+      {toast.show && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-white animate-in slide-in-from-top-4 fade-in duration-300 min-w-[320px] max-w-md border-slate-100">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+            toast.type === "success" ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
+          }`}>
+            {toast.type === "success" ? (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 pr-1 text-left">
+            <h4 className="text-xs font-bold text-slate-800">{toast.title}</h4>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{toast.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setToast((prev) => ({ ...prev, show: false }));
+              if (toast.onClose) toast.onClose();
+            }}
+            className="text-slate-400 hover:text-slate-600 text-sm font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 1. Header ด้านบนตาม Style สากล */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
-        <div className="absolute top-6 left-6">
-          <Link
-            href="/student/dashboard"
-            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
-          >
-            ← Back to Dashboard
-          </Link>
-        </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
@@ -432,7 +473,18 @@ export default function ReEnrollPage() {
       </header>
 
       {/* 2. Main Content Card */}
-      <main className="flex-1 max-w-xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:py-8 flex flex-col justify-center">
+        {/* ปุ่มย้อนกลับ */}
+        <div className="mb-3">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+          >
+            ← ย้อนกลับ
+          </button>
+        </div>
+
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80">
 
           <div className="text-center mb-6 pb-4 border-b border-slate-100">
@@ -454,7 +506,7 @@ export default function ReEnrollPage() {
                 regMode === 'upload' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Upload Files
+              Upload Files (อัปโหลดรูปภาพ)
             </button>
             <button
               type="button"
@@ -472,10 +524,38 @@ export default function ReEnrollPage() {
 
           {/* 1. โหมด Upload รูปภาพ */}
           <div className={`${regMode === 'upload' ? 'block' : 'hidden'} animate-in fade-in space-y-4`}>
-            <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-3.5 text-center">
-              <p className="text-xs font-medium text-emerald-800">
-                คำแนะนำ: กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไปเพื่อความแม่นยำในการรู้จำใบหน้า
+            
+            {/* คำแนะนำและตัวอย่าง 5 มุมหน้า (พร้อมภาพตัวอย่าง ex1.png ถึง ex5.png และฟอนต์ขนาดใหญ่) */}
+            <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-4 md:p-6">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+                <h4 className="text-sm md:text-base font-black text-emerald-950">
+                  คำแนะนำ: กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป (แนะนำให้ครอบคลุมมุมต่างๆ)
+                </h4>
+              </div>
+              <p className="text-xs md:text-sm text-emerald-900 mb-5 leading-relaxed font-semibold">
+                เพื่อให้ระบบ AI ตรวจจับและรู้จำใบหน้าได้อย่างแม่นยำที่สุด ควรถ่ายในที่มีแสงสว่างชัดเจน ไม่สวมแว่นตาดำหรือแมสก์ ตามตัวอย่างมุมด้านล่างนี้:
               </p>
+
+              {/* การ์ดแสดง 5 ท่าทางแนะนำ พร้อมภาพตัวอย่าง ex1.png ถึง ex5.png */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
+                {POSE_GUIDES.map((guide, idx) => (
+                  <div key={idx} className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 text-center shadow-xs flex flex-col items-center justify-between">
+                    <div className="w-full h-28 rounded-xl bg-slate-100 overflow-hidden mb-2.5 border border-slate-200 flex items-center justify-center">
+                      <img 
+                        src={guide.imgSrc} 
+                        alt={guide.title} 
+                        className="w-full h-full object-cover hover:scale-105 transition-transform" 
+                      />
+                    </div>
+                    <div>
+                      <p className="text-sm md:text-base font-black text-slate-900 leading-tight">{guide.title}</p>
+                      <span className="text-xs md:text-sm font-black text-emerald-700 font-mono block mt-1">{guide.angle}</span>
+                      <p className="text-xs font-bold text-slate-600 mt-1.5 leading-tight">{guide.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="p-6 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 text-center">
@@ -600,12 +680,6 @@ export default function ReEnrollPage() {
             )}
           </div>
 
-          <div className="pt-4 mt-4 border-t border-slate-100">
-            <button onClick={() => router.back()} className="w-full text-slate-400 text-center text-xs font-bold hover:text-slate-600 cursor-pointer">
-              ย้อนกลับ
-            </button>
-          </div>
-
           {status && (
             <div className={`p-3 rounded-xl text-center text-xs font-bold mt-4 border ${
               status.includes('ข้อผิดพลาด')
@@ -647,33 +721,11 @@ export default function ReEnrollPage() {
               <button
                 type="button"
                 onClick={() => handleFinalSave([])}
-                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
               >
-                ยืนยันบันทึก
+                ยืนยัน
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 5. Custom Modal: แจ้งเตือนสำเร็จ / ข้อผิดพลาด */}
-      {alertModal.show && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[99] animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-black text-slate-800 mb-1.5">{alertModal.title}</h3>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
-              {alertModal.message}
-            </p>
-
-            <button
-              type="button"
-              onClick={handleCloseAlertModal}
-              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
-                alertModal.isSuccess ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
-              }`}
-            >
-              ตกลง
-            </button>
           </div>
         </div>
       )}

@@ -1,13 +1,14 @@
 // attendance-web/app/admin/reports/courses/[id]/page.tsx
 'use client';
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import CourseAttendanceSheetPrintForm from '@/app/components/reports/CourseAttendanceSheetPrintForm';
 
 export const dynamic = 'force-dynamic';
 
 export default function AdminSingleCourseReportPage() {
+  const router = useRouter();
   const params = useParams();
   const courseId = params.id as string;
 
@@ -129,8 +130,8 @@ export default function AdminSingleCourseReportPage() {
         const rawList = Array.isArray(historyJson.data)
           ? historyJson.data
           : Array.isArray(historyJson)
-          ? historyJson
-          : [];
+            ? historyJson
+            : [];
         const sortedHistory = [...rawList].sort((a: any, b: any) => {
           const tA = new Date(a.createdAt || a.date).getTime();
           const tB = new Date(b.createdAt || b.date).getTime();
@@ -575,7 +576,7 @@ export default function AdminSingleCourseReportPage() {
 
       standardWeeks.forEach((weekSession: any, wIdx: number) => {
         const weekNum = wIdx + 1;
-        
+
         const studentRecordsInWeek: any[] = [];
         historySessions.forEach((session: any) => {
           const d = new Date(session.date || session.createdAt || 0);
@@ -595,8 +596,8 @@ export default function AdminSingleCourseReportPage() {
               const rName = `${item.firstName || item.student?.firstName || ''} ${item.lastName || item.student?.lastName || ''}`.trim() || item.name || item.student?.name;
 
               return (studentId && rId && rId === studentId) ||
-                     (studentCode && rCode && rCode === studentCode) ||
-                     (studentName && rName && rName === studentName);
+                (studentCode && rCode && rCode === studentCode) ||
+                (studentName && rName && rName === studentName);
             });
 
             if (r) {
@@ -655,28 +656,11 @@ export default function AdminSingleCourseReportPage() {
 
       {/* 1. ส่วนหน้าจอปกติ (ซ่อนอัตโนมัติเมื่อสั่งพิมพ์) */}
       <div className="print:hidden flex flex-col flex-1">
-        <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
-          <div className="absolute top-6 left-6 flex items-center gap-4">
-            <Link
-              href="/admin/courses"
-              className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-all"
-            >
-              ← รายวิชาทั้งหมด
-            </Link>
-            <Link
-              href="/admin/reports/courses"
-              className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-all"
-            >
-              ← รายงานภาพรวมทั้งหมด
-            </Link>
-          </div>
+        <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm">
           <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
             ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
           </h1>
           <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
-            <p>
-              วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
-            </p>
           </div>
         </header>
 
@@ -699,43 +683,51 @@ export default function AdminSingleCourseReportPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
               </svg>
-              จัดการรายชื่อนักศึกษา
+              จัดการรายวิชา
             </Link>
           </div>
         </nav>
 
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-          <div className="flex justify-center mb-6">
-            <div className="inline-flex bg-slate-200/80 p-1 rounded-xl shadow-inner border border-slate-300/60">
-              <button
-                type="button"
-                onClick={() => setReportMode('daily')}
-                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${
-                  reportMode === 'daily'
-                    ? 'bg-white text-emerald-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                รายละเอียดรายวัน
-              </button>
-              <button
-                type="button"
-                onClick={() => setReportMode('summary')}
-                className={`px-6 py-2 rounded-lg font-bold text-xs md:text-sm transition-all cursor-pointer ${
-                  reportMode === 'summary'
-                    ? 'bg-white text-emerald-800 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                สถิติรวมทุกสัปดาห์ (15 สัปดาห์)
-              </button>
-            </div>
+          {/* ปุ่มย้อนกลับ ตรงแนวขอบซ้ายของการ์ดพอดี */}
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+            >
+              ← ย้อนกลับ
+            </button>
           </div>
 
           {/* 1. โหมดรายงานประจำวัน */}
           {reportMode === 'daily' && (
             <div className="animate-in fade-in duration-300 space-y-4">
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80">
+                {/* ปุ่มสลับโหมดอยู่ใน Card นี้ */}
+                <div className="flex justify-between items-center pb-4 mb-5 border-b border-slate-100 flex-wrap gap-4">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800">รายงานการเข้าเรียนรายวัน</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">ตรวจสอบและจัดการสถานะการเข้าเรียนรายบุคคล</p>
+                  </div>
+                  <div className="inline-flex bg-slate-100 p-1 rounded-xl shadow-inner border border-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => setReportMode('daily')}
+                      className="px-4 py-1.5 rounded-lg font-bold text-xs bg-white text-emerald-800 shadow-sm transition-all cursor-pointer"
+                    >
+                      รายละเอียดรายวัน
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportMode('summary')}
+                      className="px-4 py-1.5 rounded-lg font-bold text-xs text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                    >
+                      สถิติรวมทุกสัปดาห์ (15 สัปดาห์)
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                   <div>
                     <div className="flex items-center justify-between mb-2">
@@ -774,6 +766,9 @@ export default function AdminSingleCourseReportPage() {
                   </div>
 
                   <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">
+                      ดูประวัติการบันทึก
+                    </label>
                     <Link
                       href={`/admin/reports/courses/${courseId}/history?date=${selectedDate}${selectedTimeSlot ? `&timeSlot=${selectedTimeSlot}` : ''}`}
                       className="w-full inline-flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white px-5 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-xs transition-all cursor-pointer"
@@ -786,7 +781,6 @@ export default function AdminSingleCourseReportPage() {
                   </div>
                 </div>
 
-                {/* ✅ เพิ่มกล่อง รอตรวจสอบ */}
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-100">
                   {[
                     { label: 'ทั้งหมด', count: dailyReport.summary?.total || 0, color: 'text-slate-600', bg: 'bg-slate-50' },
@@ -806,17 +800,15 @@ export default function AdminSingleCourseReportPage() {
 
               {/* ตารางรายชื่อประจำวัน */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
-                {/* ✅ เพิ่มปุ่มกรอง รอตรวจสอบ */}
                 <div className="p-4 border-b border-slate-100 flex gap-2 overflow-x-auto">
                   {['ทั้งหมด', 'มาเรียน', 'มาสาย', 'ลา', 'รอตรวจสอบ', 'ขาดเรียน'].map((f) => (
                     <button
                       key={f}
                       onClick={() => setFilter(f)}
-                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        filter === f
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filter === f
                           ? 'bg-emerald-700 text-white shadow-xs'
                           : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200/60'
-                      }`}
+                        }`}
                     >
                       {f}
                     </button>
@@ -940,26 +932,33 @@ export default function AdminSingleCourseReportPage() {
           )}
 
           {/* 2. โหมดสรุปภาพรวม 15 สัปดาห์ */}
-          {reportMode === 'summary' && (
-            <div className="animate-in fade-in duration-300">
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
-                <div className="p-6 bg-emerald-700 text-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div>
-                    <h2 className="text-lg font-black flex items-center gap-2 flex-wrap">
-                      ตารางสรุปสถิติภาพรวมทุกสัปดาห์
-                      {courseInfo && (
-                        <span className="text-xs bg-emerald-800/80 px-2 py-1 rounded-md font-medium border border-emerald-600/50">
-                          กลุ่ม {courseInfo.section || '-'} | เทอม {courseInfo.semester || '-'}/{courseInfo.academicYear || '-'}
-                        </span>
-                      )}
-                    </h2>
-                    <p className="text-emerald-100 text-xs mt-1.5">รวมสถิติการเช็คชื่อทั้ง 15 สัปดาห์ตลอดภาคการศึกษา (รวมคาบสอนชดเชย)</p>
-                  </div>
-                  <span className="text-xs bg-emerald-800 text-white px-3.5 py-1.5 rounded-xl font-bold border border-emerald-600">
-                    ทั้งหมด 15 สัปดาห์
-                  </span>
+          {reportMode !== 'daily' && (
+            <div className="animate-in fade-in duration-300 space-y-4">
+              {/* การ์ดหัวข้อพร้อมปุ่มสลับโหมด */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 flex justify-between items-center flex-wrap gap-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">ตารางสรุปสถิติภาพรวมทุกสัปดาห์</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">รวมสถิติการเช็คชื่อทั้ง 15 สัปดาห์ตลอดภาคการศึกษา (รวมคาบสอนชดเชย)</p>
                 </div>
+                <div className="inline-flex bg-slate-100 p-1 rounded-xl shadow-inner border border-slate-200/60">
+                  <button
+                    type="button"
+                    onClick={() => setReportMode('daily')}
+                    className="px-4 py-1.5 rounded-lg font-bold text-xs text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                  >
+                    รายละเอียดรายวัน
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportMode('summary')}
+                    className="px-4 py-1.5 rounded-lg font-bold text-xs bg-white text-emerald-800 shadow-sm transition-all cursor-pointer"
+                  >
+                    สถิติรวมทุกสัปดาห์ (15 สัปดาห์)
+                  </button>
+                </div>
+              </div>
 
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -986,29 +985,27 @@ export default function AdminSingleCourseReportPage() {
                           const pendingCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'รอตรวจสอบ').length;
                           const leaveCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ลา').length;
                           const absentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ขาดเรียน').length;
-                          
+
                           const sumRecorded = presentCount + lateCount + pendingCount + leaveCount + absentCount;
                           const isRecorded = sumRecorded > 0;
-                          
-                          const percent = isRecorded && totalStudentsCount > 0 
-                               ? Math.round(((presentCount + lateCount) / totalStudentsCount) * 100) 
-                               : 0;
+
+                          const percent = isRecorded && totalStudentsCount > 0
+                            ? Math.round(((presentCount + lateCount) / totalStudentsCount) * 100)
+                            : 0;
 
                           return (
                             <tr
                               key={week.weekNumber}
-                              className={`transition-colors ${
-                                isRecorded ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'
-                              }`}
+                              className={`transition-colors ${isRecorded ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'
+                                }`}
                             >
                               <td
                                 className="p-4 text-center cursor-pointer"
                                 onClick={() => handleSelectWeek(week)}
                                 title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
                               >
-                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${
-                                  isRecorded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'
-                                }`}>
+                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${isRecorded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'
+                                  }`}>
                                   {week.weekNumber}
                                 </span>
                               </td>
@@ -1329,9 +1326,8 @@ export default function AdminSingleCourseReportPage() {
               <button
                 type="button"
                 onClick={() => setAlertModal({ show: false, title: '', message: '', isSuccess: true })}
-                className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${
-                  alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
-                }`}
+                className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
+                  }`}
               >
                 ตกลง
               </button>

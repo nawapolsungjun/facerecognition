@@ -72,15 +72,7 @@ export default function AdminCoursesReportPage() {
       <div className="print:hidden flex flex-col flex-1">
         
         {/* Header */}
-        <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
-          <div className="absolute top-6 left-6">
-            <Link
-              href="/admin/dashboard"
-              className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1.5 text-xs uppercase tracking-wider transition-all"
-            >
-              ← Dashboard
-            </Link>
-          </div>
+        <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm">
           <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
             ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
           </h1>
@@ -92,6 +84,17 @@ export default function AdminCoursesReportPage() {
         {/* Main Content */}
         <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
           
+          {/* ปุ่มย้อนกลับ ตรงแนวขอบซ้ายของการ์ดพอดี */}
+          <div>
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+            >
+              ← ย้อนกลับ
+            </button>
+          </div>
+
           {/* กล่องหัวเรื่อง */}
           <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
@@ -101,9 +104,6 @@ export default function AdminCoursesReportPage() {
                 ภาพรวมสถิติการเช็คชื่อสะสมของแต่ละวิชาในระบบ (คลิกที่รายวิชาเพื่อดูรายงานอย่างละเอียด)
               </p>
             </div>
-            <span className="bg-slate-50 text-slate-600 font-bold text-xs px-3.5 py-2 rounded-xl border border-slate-200/60 whitespace-nowrap">
-              รายวิชาทั้งหมด {reports.length} วิชา
-            </span>
           </div>
 
           {/* แถบค้นหา */}
@@ -133,19 +133,19 @@ export default function AdminCoursesReportPage() {
             </div>
 
             <div className="text-xs text-slate-500 font-bold w-full sm:w-auto text-right whitespace-nowrap">
-              พบข้อมูลทั้งหมด <span className="text-emerald-700 font-black">{filteredAndSortedReports.length}</span> วิชา
+              พบทั้งหมด <span className="text-emerald-700 font-black">{filteredAndSortedReports.length}</span> วิชา
             </div>
           </div>
 
           {/* ตารางแสดงรายงาน */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden font-sans">
             <div className="w-full overflow-x-auto">
               <table className="w-full text-left border-collapse table-auto">
                 <thead>
-                  <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600 w-10 text-center">ลำดับ</th>
+                  <tr className="bg-slate-50/80 border-b border-slate-200/60 text-xs font-bold text-slate-600">
+                    <th className="py-4 px-3 w-12 text-center">ลำดับ</th>
                     <th 
-                      className="py-4 px-3 text-xs font-bold text-slate-600 w-24 cursor-pointer select-none hover:bg-slate-100/80 transition-colors whitespace-nowrap"
+                      className="py-4 px-3 w-28 cursor-pointer select-none hover:bg-slate-100/80 transition-colors whitespace-nowrap"
                       onClick={toggleSortOrder}
                       title="คลิกเพื่อสลับการเรียงลำดับรหัสวิชา"
                     >
@@ -156,18 +156,18 @@ export default function AdminCoursesReportPage() {
                         </span>
                       </div>
                     </th>
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600">ชื่อรายวิชา / ข้อมูลกลุ่ม</th>
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600 w-36 whitespace-nowrap">อาจารย์ผู้สอน</th>
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600 text-center w-16 whitespace-nowrap">นศ.</th>
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600 text-center w-44 whitespace-nowrap">สรุปการเข้าเรียน</th>
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600 text-center w-24 whitespace-nowrap">ร้อยละ (%)</th>
-                    <th className="py-4 px-3 text-xs font-bold text-slate-600 text-center w-16 whitespace-nowrap">จัดการ</th>
+                    <th className="py-4 px-3">ชื่อรายวิชา / ข้อมูลกลุ่ม</th>
+                    <th className="py-4 px-3 w-36 whitespace-nowrap">อาจารย์ผู้สอน</th>
+                    <th className="py-4 px-3 text-center w-20 whitespace-nowrap">นศ.</th>
+                    <th className="py-4 px-3 text-center w-44 whitespace-nowrap">สรุปการเข้าเรียน</th>
+                    <th className="py-4 px-3 text-center w-28 whitespace-nowrap">ร้อยละ (%)</th>
+                    <th className="py-4 px-3 text-center w-16 whitespace-nowrap">จัดการ</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="p-14 text-center font-bold text-slate-400 animate-pulse text-xs">
+                      <td colSpan={8} className="p-14 text-center font-medium text-slate-400 animate-pulse">
                         กำลังโหลดข้อมูลสรุปรายวิชา...
                       </td>
                     </tr>
@@ -180,18 +180,18 @@ export default function AdminCoursesReportPage() {
                         title="คลิกเพื่อดูรายละเอียดการเช็คชื่อของวิชานี้"
                       >
                         {/* ลำดับ */}
-                        <td className="py-4 px-3 text-center text-xs font-bold text-slate-400">
+                        <td className="py-4 px-3 text-center font-medium text-slate-400">
                           {index + 1}
                         </td>
 
                         {/* รหัสวิชา */}
-                        <td className="py-4 px-3 font-mono font-bold text-emerald-700 text-xs whitespace-nowrap">
+                        <td className="py-4 px-3 font-medium whitespace-nowrap">
                           {item.courseCode}
                         </td>
 
                         {/* ชื่อรายวิชา พร้อมกลุ่มและเทอม */}
                         <td className="py-4 px-3">
-                          <div className="font-bold text-slate-800 text-xs">
+                          <div className="font-bold text-slate-800">
                             {item.courseName}
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5 font-medium flex gap-2">
@@ -202,12 +202,12 @@ export default function AdminCoursesReportPage() {
                         </td>
 
                         {/* อาจารย์ผู้สอน */}
-                        <td className="py-4 px-3 text-xs font-medium text-slate-700 whitespace-nowrap">
+                        <td className="py-4 px-3 font-medium text-slate-700 whitespace-nowrap">
                           {item.teacherName || '-'}
                         </td>
 
                         {/* จำนวนนักศึกษา */}
-                        <td className="py-4 px-3 text-center font-bold font-mono text-emerald-700 text-xs whitespace-nowrap">
+                        <td className="py-4 px-3 text-center font-bold text-emerald-700 whitespace-nowrap">
                           {item.totalStudents || 0}
                         </td>
 
@@ -232,7 +232,7 @@ export default function AdminCoursesReportPage() {
                         {/* ร้อยละการเข้าเรียน */}
                         <td className="py-4 px-3 whitespace-nowrap">
                           <div className="flex flex-col items-center">
-                            <span className={`text-xs font-mono font-bold ${item.percentage >= 80 ? 'text-emerald-700' : item.percentage >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                            <span className={`text-xs font-bold ${item.percentage >= 80 ? 'text-emerald-700' : item.percentage >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
                               {item.percentage || 0}%
                             </span>
                             <div className="w-14 h-1.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
@@ -262,7 +262,7 @@ export default function AdminCoursesReportPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={8} className="p-16 text-center text-slate-400 font-bold text-xs">
+                      <td colSpan={8} className="p-16 text-center text-slate-400 font-medium">
                         {searchTerm ? 'ไม่พบข้อมูลรายวิชาที่ตรงกับคำค้นหา' : 'ไม่พบข้อมูลรายวิชาในระบบ'}
                       </td>
                     </tr>

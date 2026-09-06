@@ -65,18 +65,47 @@ export default function AttendancePage() {
   const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน'>('ทั้งหมด');
   const [zoomedImageIdx, setZoomedImageIdx] = useState<number | null>(null);
 
-  const [alertModal, setAlertModal] = useState<{
+  // State สำหรับเก็บการแก้ไขสถานะด้วยมือ (Manual Status Overrides)
+  const [statusOverrides, setStatusOverrides] = useState<Record<number, string>>({});
+  // State สำหรับเก็บเวลาที่แก้ไขแยกตามรายบุคคล
+  const [timeOverrides, setTimeOverrides] = useState<Record<number, string>>({});
+  // State สำหรับ Modal แก้ไขสถานะขั้นสูง (แบบหน้า Report)
+  const [editingStudent, setEditingStudent] = useState<{
+    id: number;
+    name: string;
+    studentCode: string;
+    currentStatus: string;
+    newStatus: string;
+    currentTime: string;
+    remark: string;
+  } | null>(null);
+
+  // Toast Alert Message State
+  const [toast, setToast] = useState<{
     show: boolean;
+    type: 'success' | 'error';
     title: string;
     message: string;
-    isSuccess?: boolean;
     onClose?: () => void;
   }>({
     show: false,
+    type: 'success',
     title: '',
     message: '',
-    isSuccess: true,
   });
+
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((type: 'success' | 'error', title: string, message: string, onClose?: () => void, duration = 3500) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, type, title, message, onClose });
+    toastTimerRef.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, show: false }));
+      if (onClose) onClose();
+    }, duration);
+  }, []);
+
+  const ALL_STATUSES = ['มาเรียน', 'มาสาย', 'ลา', 'รอตรวจสอบ', 'ขาดเรียน'];
 
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const imageRefs = useRef<(HTMLImageElement | null)[]>([]);
@@ -204,13 +233,12 @@ export default function AttendancePage() {
     }
   }, [courseId, fetchInitialData]);
 
-  // ตัวแปรเช็คการเกินขีดจำกัด (จำกัด 3 รอบ)
   const isRoundLimitReached = dailyRoundNumber > 3;
 
   const timeSlotConflict = useMemo(() => {
     const currentSlotStr = `${startTime}-${endTime}`;
     const oppositeType = sessionType === 'REGULAR' ? 'COMPENSATION' : 'REGULAR';
-    const oppositeLabel = oppositeType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ';
+    const oppositeLabel = oppositeType === 'COMPENSATION' ? 'คาบเรียนชดเชย' : 'คาบเรียนปกติ';
 
     const conflictSession = allDateSessions.find((session: any) => {
       const isOpposite = session.sessionType
@@ -286,22 +314,12 @@ export default function AttendancePage() {
 
   const handleScanAttendance = async () => {
     if (timeSlotConflict.hasConflict) {
-      setAlertModal({
-        show: true,
-        title: 'ไม่สามารถสแกนได้',
-        message: `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว กรุณาเลือกช่วงเวลาหรือประเภทคาบเรียนที่ถูกต้อง`,
-        isSuccess: false,
-      });
+      showToast('error', 'ไม่สามารถสแกนได้', `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว กรุณาเลือกช่วงเวลาหรือประเภทคาบเรียนที่ถูกต้อง`);
       return;
     }
 
     if (isRoundLimitReached) {
-      setAlertModal({
-        show: true,
-        title: 'เกินขีดจำกัดการเช็คชื่อ',
-        message: `ในคาบเรียนนี้ได้มีการเช็คชื่อครบ 3 รอบแล้ว ไม่สามารถสแกนเพิ่มได้`,
-        isSuccess: false,
-      });
+      showToast('error', 'เกินขีดจำกัดการเช็คชื่อ', 'ในคาบเรียนนี้ได้มีการเช็คชื่อครบ 3 รอบแล้ว ไม่สามารถสแกนเพิ่มได้');
       return;
     }
 
@@ -309,6 +327,8 @@ export default function AttendancePage() {
     setIsLoading(true);
     const uniqueDetected = new Set<string>();
     const updatedResults: ScanResult[] = [];
+    setStatusOverrides({});
+    setTimeOverrides({});
 
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
@@ -404,6 +424,33 @@ export default function AttendancePage() {
     }
   }, [zoomedImageIdx, renderZoomBoxes]);
 
+  const handleOpenStatusModal = (item: any) => {
+    const currentStatus = item.finalStatus || 'มาเรียน';
+    const availableStatuses = ALL_STATUSES.filter((s) => s !== currentStatus);
+    const initialNewStatus = availableStatuses[0] || 'มาเรียน';
+
+    setEditingStudent({
+      id: item.studentId,
+      name: item.displayName,
+      studentCode: item.studentCode,
+      currentStatus: currentStatus,
+      newStatus: initialNewStatus,
+      currentTime: timeOverrides[item.studentId] || '12:00',
+      remark: item.remark || ''
+    });
+  };
+
+  const handleSaveStatusModal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+
+    setStatusOverrides(prev => ({
+      ...prev,
+      [editingStudent.id]: editingStudent.newStatus
+    }));
+
+    setEditingStudent(null);
+  };
 
   const attendanceEvaluationList = useMemo(() => {
     const cleanedDetected = detectedStudents.map(s => s.replace(/\s+/g, ' ').trim());
@@ -433,23 +480,23 @@ export default function AttendancePage() {
       patternArray.push(isDetectedInCurrentScan ? 1 : 0);
       const patternStr = patternArray.join('');
 
-      let finalStatus: 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน' = 'ขาดเรียน';
+      let computedStatus: 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน' = 'ขาดเรียน';
       let autoRemark = '';
 
       if (patternArray.length === 3) {
-        if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
-        else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
-        else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
-        else finalStatus = 'ขาดเรียน';
+        if (['111', '101'].includes(patternStr)) computedStatus = 'มาเรียน';
+        else if (['110', '100', '010'].includes(patternStr)) computedStatus = 'รอตรวจสอบ';
+        else if (['011', '001'].includes(patternStr)) computedStatus = 'มาสาย';
+        else computedStatus = 'ขาดเรียน';
       } 
       else if (patternArray.length === 2) {
-        if (patternStr === '11') finalStatus = 'มาเรียน';
-        else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
-        else if (patternStr === '01') finalStatus = 'มาสาย';
-        else finalStatus = 'ขาดเรียน';
+        if (patternStr === '11') computedStatus = 'มาเรียน';
+        else if (patternStr === '10') computedStatus = 'รอตรวจสอบ';
+        else if (patternStr === '01') computedStatus = 'มาสาย';
+        else computedStatus = 'ขาดเรียน';
       } 
       else if (patternArray.length === 1) {
-        finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
+        computedStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
       }
 
       if (isDetectedInCurrentScan) {
@@ -458,16 +505,21 @@ export default function AttendancePage() {
         autoRemark = `${sessionPrefix}ไม่พบในการเช็คชื่อรอบที่ ${dailyRoundNumber}`;
       }
 
+      const finalStatus = statusOverrides[student.id] !== undefined ? statusOverrides[student.id] : computedStatus;
+      const finalRemark = statusOverrides[student.id] !== undefined
+        ? `${autoRemark} (แก้ไขโดยอาจารย์)`
+        : autoRemark;
+
       return {
         studentId: student.id,
         studentCode: student.studentCode,
         displayName,
         isDetectedInCurrentScan,
         finalStatus,
-        remark: autoRemark
+        remark: finalRemark
       };
     });
-  }, [detectedStudents, courseStudents, previousRoundAttendance, startTime, endTime, sessionRemark, sessionType, dailyRoundNumber]);
+  }, [detectedStudents, courseStudents, previousRoundAttendance, startTime, endTime, sessionRemark, sessionType, dailyRoundNumber, statusOverrides]);
 
   const counts = useMemo(() => {
     const present = attendanceEvaluationList.filter(s => s.finalStatus === 'มาเรียน').length;
@@ -562,12 +614,7 @@ export default function AttendancePage() {
   const handleConfirmAndSave = async () => {
     if (timeSlotConflict.hasConflict) {
       setShowConfirmModal(false);
-      setAlertModal({
-        show: true,
-        title: 'ไม่สามารถบันทึกได้',
-        message: `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว ไม่สามารถบันทึกซ้ำช่วงเวลาเดียวกันได้`,
-        isSuccess: false,
-      });
+      showToast('error', 'ไม่สามารถบันทึกได้', `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว ไม่สามารถบันทึกซ้ำช่วงเวลาเดียวกันได้`);
       return;
     }
 
@@ -612,60 +659,68 @@ export default function AttendancePage() {
       if (data.success) {
         setShowConfirmModal(false);
         const roundTitle = `รอบที่ ${dailyRoundNumber}`;
-        const typeText = sessionType === 'COMPENSATION' ? '(คาบสอนชดเชย)' : '(คาบปกติ)';
-        setAlertModal({
-          show: true,
-          title: 'บันทึกสำเร็จเรียบร้อย',
-          message: `บันทึกการเช็คชื่อวันที่ ${selectedDate} [${timeSlotStr} น.] ${typeText} ${roundTitle} เรียบร้อยแล้ว`,
-          isSuccess: true,
-          onClose: () => router.push(`/teacher/report/${courseId}`),
+        const typeText = sessionType === 'COMPENSATION' ? '(คาบเรียนชดเชย)' : '(คาบปกติ)';
+        showToast('success', 'บันทึกสำเร็จเรียบร้อย', `บันทึกการเช็คชื่อวันที่ ${selectedDate} [${timeSlotStr} น.] ${typeText} ${roundTitle} เรียบร้อยแล้ว`, () => {
+          router.push(`/teacher/report/${courseId}`);
         });
       } else {
         throw new Error(data.error);
       }
     } catch (err: any) {
       setShowConfirmModal(false);
-      setAlertModal({
-        show: true,
-        title: 'บันทึกไม่สำเร็จ',
-        message: err.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล',
-        isSuccess: false,
-      });
+      showToast('error', 'บันทึกไม่สำเร็จ', err.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       setStatus('เกิดข้อผิดพลาดในการบันทึก');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleCloseAlertModal = () => {
-    if (alertModal.onClose) {
-      alertModal.onClose();
-    }
-    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
-  };
-
   if (!isMounted) return <div className="p-20 text-center font-bold text-slate-400">กำลังเริ่มระบบ...</div>;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
+    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
+
+      {/* Toast Alert Message ลอยตรงกลางด้านบน */}
+      {toast.show && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-white animate-in slide-in-from-top-4 fade-in duration-300 min-w-[320px] max-w-md border-slate-100">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+            toast.type === "success" ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
+          }`}>
+            {toast.type === "success" ? (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 pr-1 text-left">
+            <h4 className="text-xs font-bold text-slate-800">{toast.title}</h4>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{toast.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setToast((prev) => ({ ...prev, show: false }));
+              if (toast.onClose) toast.onClose();
+            }}
+            className="text-slate-400 hover:text-slate-600 text-sm font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
-        <div className="absolute top-6 left-6">
-          <Link
-            href="/teacher/dashboard"
-            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
-          >
-            ← Back to Dashboard
-          </Link>
-        </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
         <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
-          <p>
-            วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
-          </p>
         </div>
       </header>
 
@@ -699,13 +754,24 @@ export default function AttendancePage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
-            จัดการรายชื่อนักศึกษา
+            จัดการรายวิชา
           </Link>
         </div>
       </nav>
 
       {/* Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8 flex flex-col items-center">
+        {/* ปุ่มย้อนกลับ */}
+        <div className="w-full mb-3">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+          >
+            ← ย้อนกลับ
+          </button>
+        </div>
+
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 w-full mb-6 space-y-5">
 
           {timeSlotConflict.hasConflict && (
@@ -766,7 +832,7 @@ export default function AttendancePage() {
                   : 'text-slate-600 hover:text-slate-900'
                   }`}
               >
-                คาบสอนชดเชย
+                คาบเรียนชดเชย
               </button>
             </div>
           </div>
@@ -785,8 +851,8 @@ export default function AttendancePage() {
                   type="button"
                   onClick={() => handleSlotChange(m.id as any)}
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${slotMode === m.id
-                      ? 'bg-[#0f766e] text-white shadow-sm'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    ? 'bg-[#0f766e] text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
                     }`}
                 >
                   {m.label}
@@ -799,14 +865,14 @@ export default function AttendancePage() {
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-emerald-500/20"
+                className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-emerald-500/20 [color-scheme:light]"
               />
               <span className="text-xs font-bold text-slate-500">ถึง</span>
               <input
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-emerald-500/20"
+                className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-emerald-500/20 [color-scheme:light]"
               />
               <span className="text-xs font-bold text-slate-500">น.</span>
             </div>
@@ -815,7 +881,7 @@ export default function AttendancePage() {
           {/* หมายเหตุคาบเรียน */}
           <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
             <label className="block text-xs font-bold text-slate-800">
-              หมายเหตุ / บันทึกคาบสอนชดเชย (เช่น สอนชดเชยสัปดาห์ที่ 3)
+              หมายเหตุ
             </label>
             <input
               type="text"
@@ -923,7 +989,7 @@ export default function AttendancePage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 pb-3 border-b border-slate-100">
               <div>
                 <h2 className="text-lg font-black text-slate-800">
-                  รายชื่อนักศึกษาในคลาส ({attendanceEvaluationList.length} คน)
+                  รายชื่อนักศึกษาในชั้นเรียน ({attendanceEvaluationList.length} คน)
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
                   สถานะการคำนวณเบื้องต้นจากการตรวจพบใบหน้ารอบปัจจุบัน ร่วมกับประวัติเดิม
@@ -936,7 +1002,7 @@ export default function AttendancePage() {
                 </span>
                 <span className={`text-xs font-bold px-3 py-1 rounded-lg border ${sessionType === 'COMPENSATION' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'
                   }`}>
-                  {sessionType === 'COMPENSATION' ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'}
+                  {sessionType === 'COMPENSATION' ? 'คาบเรียนชดเชย' : 'คาบเรียนปกติ'}
                 </span>
               </div>
             </div>
@@ -954,8 +1020,8 @@ export default function AttendancePage() {
                   type="button"
                   onClick={() => setStatusFilter(tab.id as any)}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${statusFilter === tab.id
-                      ? 'bg-[#0f766e] text-white border-[#0f766e] shadow-xs'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-[#0f766e] text-white border-[#0f766e] shadow-xs'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                 >
                   {tab.label} ({tab.count})
@@ -972,6 +1038,17 @@ export default function AttendancePage() {
                       item.finalStatus === 'มาสาย' ? 'bg-amber-50/60 border-amber-200' :
                         item.finalStatus === 'รอตรวจสอบ' ? 'bg-purple-50/60 border-purple-200' :
                         'bg-red-50/60 border-red-200';
+
+                  const getStatusBadge = (status: string) => {
+                    switch (status) {
+                      case 'มาเรียน': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                      case 'มาสาย': return 'bg-amber-50 text-amber-700 border-amber-200';
+                      case 'ลา': return 'bg-blue-50 text-blue-700 border-blue-200';
+                      case 'รอตรวจสอบ': return 'bg-purple-50 text-purple-700 border-purple-200';
+                      case 'ขาดเรียน': return 'bg-red-50 text-red-700 border-red-200';
+                      default: return 'bg-slate-50 text-slate-600 border-slate-200';
+                    }
+                  };
 
                   return (
                     <div
@@ -994,7 +1071,7 @@ export default function AttendancePage() {
                           )}
                           {item.remark && (
                             <div className="text-[11px] text-slate-500 mt-0.5">
-                              ประเมินสถานะ: {item.remark}
+                              {item.remark}
                             </div>
                           )}
                         </div>
@@ -1005,16 +1082,21 @@ export default function AttendancePage() {
                           {item.studentCode}
                         </span>
 
-                        <span className={`px-3 py-1 rounded-lg text-xs font-bold border whitespace-nowrap ${item.finalStatus === 'มาเรียน'
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                          : item.finalStatus === 'มาสาย'
-                            ? 'bg-amber-100 text-amber-800 border-amber-300'
-                            : item.finalStatus === 'รอตรวจสอบ'
-                              ? 'bg-purple-100 text-purple-800 border-purple-300'
-                              : 'bg-red-100 text-red-700 border-red-300'
-                          }`}>
+                        <span className={`px-3 py-1 rounded-xl text-xs font-bold border whitespace-nowrap ${getStatusBadge(item.finalStatus)}`}>
                           {item.finalStatus}
                         </span>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenStatusModal(item)}
+                          className="p-2 text-slate-400 hover:text-emerald-700 hover:bg-white active:scale-95 rounded-xl border border-slate-200/80 transition-all cursor-pointer shrink-0 shadow-2xs"
+                          title="แก้ไขสถานะ / หมายเหตุ"
+                        >
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   );
@@ -1045,7 +1127,7 @@ export default function AttendancePage() {
               <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
                 <div className="flex justify-between items-center mb-3">
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    รูปภาพที่ #{idx + 1}
+                    รูปภาพที่ {idx + 1}
                   </p>
                   <button
                     type="button"
@@ -1101,7 +1183,7 @@ export default function AttendancePage() {
             <div className="flex justify-between items-center pb-3 mb-3 border-b border-slate-100">
               <div>
                 <h3 className="text-base md:text-lg font-black text-slate-800">
-                  รูปภาพที่ #{zoomedImageIdx + 1} (มุมมองขนาดขยาย)
+                  รูปภาพที่ {zoomedImageIdx + 1} (มุมมองขนาดขยาย)
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">
                   ตรวจพบใบหน้าทั้งหมด {scanResults[zoomedImageIdx].boxes?.length || 0} ตำแหน่ง
@@ -1132,6 +1214,91 @@ export default function AttendancePage() {
                 />
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Popup: แก้ไขสถานะ */}
+      {editingStudent && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-black text-slate-800 mb-1">แก้ไขสถานะการเข้าเรียน</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              นักศึกษา: <span className="font-bold text-slate-700">{editingStudent.name}</span> ({editingStudent.studentCode})
+            </p>
+
+            <form onSubmit={handleSaveStatusModal} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">สถานะใหม่</label>
+                <select
+                  value={editingStudent.newStatus}
+                  onChange={(e) => {
+                    const nextStatus = e.target.value;
+                    let nextRemark = editingStudent.remark;
+                    if (nextStatus === "มาสาย") nextRemark = "มาสาย";
+                    else if (nextStatus === "ลา") nextRemark = "ลากิจ";
+                    else if (nextStatus === "รอตรวจสอบ") nextRemark = "รอตรวจสอบ";
+                    else if (nextStatus === "มาเรียน") nextRemark = "มาเรียน";
+                    else if (nextStatus === "ขาดเรียน") nextRemark = "ขาดเรียน";
+
+                    setEditingStudent({
+                      ...editingStudent,
+                      newStatus: nextStatus,
+                      remark: nextRemark,
+                    });
+                  }}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+                >
+                  {ALL_STATUSES.filter((s) => s !== editingStudent.currentStatus).map((status) => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">หมายเหตุ / เหตุผลการแก้ไข</label>
+                <input
+                  type="text"
+                  required
+                  value={editingStudent.remark}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, remark: e.target.value })}
+                  placeholder="เช่น ลากิจ, ลาป่วย, มาสาย, รอตรวจสอบ"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 block mb-1.5">ตัวเลือกด่วน:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {["ลากิจ", "ลาป่วย", "มาสาย", "รอตรวจสอบ", "เช็คชื่อรอบที่ 2", "เช็ครอบเก็บตก"].map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => setEditingStudent({ ...editingStudent, remark: tag })}
+                      className="text-[11px] px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg font-bold text-slate-600 transition-all border border-slate-200/60 cursor-pointer"
+                    >
+                      + {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingStudent(null)}
+                  className="flex-1 py-2.5 font-bold text-slate-400 hover:text-slate-600 text-xs rounded-xl bg-slate-50 hover:bg-slate-100 transition-all cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                >
+                  บันทึก
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1197,42 +1364,11 @@ export default function AttendancePage() {
                 type="button"
                 disabled={isSaving}
                 onClick={handleConfirmAndSave}
-                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
-                {isSaving ? 'กำลังบันทึก...' : 'ยืนยันบันทึก'}
+                {isSaving ? 'กำลังบันทึก...' : 'ยืนยัน'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Custom Modal */}
-      {alertModal.show && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
-            {alertModal.isSuccess ? (
-              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
-                PASS
-              </div>
-            ) : (
-              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 font-bold text-sm">
-                ERR
-              </div>
-            )}
-
-            <h3 className="text-lg font-black text-slate-800 mb-1">{alertModal.title}</h3>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
-              {alertModal.message}
-            </p>
-
-            <button
-              type="button"
-              onClick={handleCloseAlertModal}
-              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-xs transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-red-600 hover:bg-red-700'
-                }`}
-            >
-              ตกลง
-            </button>
           </div>
         </div>
       )}

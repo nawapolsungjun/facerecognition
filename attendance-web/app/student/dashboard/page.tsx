@@ -1,6 +1,6 @@
 // attendance-web/app/student/dashboard/page.tsx
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -23,7 +23,7 @@ export default function StudentDashboard() {
   const [consented, setConsented] = useState(false);
   const [targetEnrollUrl, setTargetEnrollUrl] = useState('/student/face-enrollment');
 
-  // State สำหรับแก้ไขข้อมูลส่วนตัว (เพิ่ม oldPassword และ confirmPassword)
+  // State สำหรับแก้ไขข้อมูลส่วนตัว
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editData, setEditData] = useState({
     firstName: '',
@@ -35,19 +35,30 @@ export default function StudentDashboard() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [showFaceWarning, setShowFaceWarning] = useState(false);
 
-  // State สำหรับ Custom Alert / Success Popup
-  const [alertModal, setAlertModal] = useState<{
+  // State สำหรับ Toast Alert Message ลอยตรงกลางด้านบน (Top-Middle)
+  const [toast, setToast] = useState<{
     show: boolean;
+    type: 'success' | 'error';
     title: string;
     message: string;
-    isSuccess?: boolean;
     onClose?: () => void;
   }>({
     show: false,
+    type: 'success',
     title: '',
     message: '',
-    isSuccess: true,
   });
+
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((type: 'success' | 'error', title: string, message: string, onClose?: () => void, duration = 2000) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, type, title, message, onClose });
+    toastTimerRef.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, show: false }));
+      if (onClose) onClose();
+    }, duration);
+  }, []);
 
   const executeLogout = useCallback(() => {
     localStorage.removeItem('student_user');
@@ -139,12 +150,7 @@ export default function StudentDashboard() {
   const handleJoinClick = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) {
-      setAlertModal({
-        show: true,
-        title: 'ข้อมูลไม่ครบถ้วน',
-        message: 'กรุณากรอกรหัส Join Code (6 หลัก) ก่อนดำเนินการ',
-        isSuccess: false,
-      });
+      showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณากรอกรหัส Join Code (6 หลัก) ก่อนดำเนินการ');
       return;
     }
 
@@ -181,37 +187,21 @@ export default function StudentDashboard() {
         setShowJoinConfirmModal(false);
         setShowNoFaceJoinModal(false);
 
-        setAlertModal({
-          show: true,
-          title: 'เข้าร่วมชั้นเรียนสำเร็จ',
-          message: 'คุณได้เข้าร่วมรายวิชาเรียบร้อยแล้ว',
-          isSuccess: true,
-          onClose: () => {
-            window.location.reload();
-          }
+        showToast('success', 'เข้าร่วมชั้นเรียนสำเร็จ', 'คุณได้เข้าร่วมรายวิชาเรียบร้อยแล้ว', () => {
+          window.location.reload();
         });
       } else {
         setStatus(`${data.error}`);
         setShowJoinConfirmModal(false);
         setShowNoFaceJoinModal(false);
-        setAlertModal({
-          show: true,
-          title: 'ไม่สามารถเข้าร่วมได้',
-          message: data.error || 'เกิดข้อผิดพลาดในการเข้าร่วมรายวิชา',
-          isSuccess: false,
-        });
+        showToast('error', 'ไม่สามารถเข้าร่วมได้', data.error || 'เกิดข้อผิดพลาดในการเข้าร่วมรายวิชา');
       }
     } catch (err) {
       console.error('Join error:', err);
       setStatus('เกิดข้อผิดพลาดในการเชื่อมต่อ');
       setShowJoinConfirmModal(false);
       setShowNoFaceJoinModal(false);
-      setAlertModal({
-        show: true,
-        title: 'เกิดข้อผิดพลาด',
-        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
-        isSuccess: false,
-      });
+      showToast('error', 'เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
       setIsJoining(false);
     }
@@ -223,30 +213,15 @@ export default function StudentDashboard() {
     const isChangingPassword = editData.newPassword || editData.oldPassword || editData.confirmPassword;
     if (isChangingPassword) {
       if (!editData.oldPassword) {
-        setAlertModal({
-          show: true,
-          title: 'ข้อมูลไม่ครบถ้วน',
-          message: 'กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน',
-          isSuccess: false,
-        });
+        showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน');
         return;
       }
       if (!editData.newPassword) {
-        setAlertModal({
-          show: true,
-          title: 'ข้อมูลไม่ครบถ้วน',
-          message: 'กรุณากรอกรหัสผ่านใหม่',
-          isSuccess: false,
-        });
+        showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณากรอกรหัสผ่านใหม่');
         return;
       }
       if (editData.newPassword !== editData.confirmPassword) {
-        setAlertModal({
-          show: true,
-          title: 'รหัสผ่านไม่ตรงกัน',
-          message: 'รหัสผ่านใหม่และยืนยันรหัสผ่านใหม่ไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง',
-          isSuccess: false,
-        });
+        showToast('error', 'รหัสผ่านไม่ตรงกัน', 'รหัสผ่านใหม่และยืนยันรหัสผ่านใหม่ไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง');
         return;
       }
     }
@@ -272,12 +247,8 @@ export default function StudentDashboard() {
       if (data.success) {
         setIsEditModalOpen(false);
         if (editData.newPassword && editData.newPassword.length > 0) {
-          setAlertModal({
-            show: true,
-            title: 'เปลี่ยนรหัสผ่านสำเร็จ',
-            message: 'เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
-            isSuccess: true,
-            onClose: () => executeLogout(),
+          showToast('success', 'เปลี่ยนรหัสผ่านสำเร็จ', 'เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่อีกครั้ง', () => {
+            executeLogout();
           });
           return;
         }
@@ -292,37 +263,15 @@ export default function StudentDashboard() {
         localStorage.setItem('student_user', JSON.stringify(updatedUser));
         setUser(updatedUser);
 
-        setAlertModal({
-          show: true,
-          title: 'บันทึกข้อมูลเรียบร้อย',
-          message: 'ข้อมูลส่วนตัวของคุณได้รับการอัปเดตเรียบร้อยแล้ว',
-          isSuccess: true,
-        });
+        showToast('success', 'บันทึกข้อมูลเรียบร้อย', 'ข้อมูลส่วนตัวของคุณได้รับการอัปเดตเรียบร้อยแล้ว');
       } else {
-        setAlertModal({
-          show: true,
-          title: 'เกิดข้อผิดพลาด',
-          message: data.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล',
-          isSuccess: false,
-        });
+        showToast('error', 'เกิดข้อผิดพลาด', data.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       }
     } catch {
-      setAlertModal({
-        show: true,
-        title: 'เกิดข้อผิดพลาด',
-        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
-        isSuccess: false,
-      });
+      showToast('error', 'เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
     } finally {
       setIsUpdating(false);
     }
-  };
-
-  const handleCloseAlertModal = () => {
-    if (alertModal.onClose) {
-      alertModal.onClose();
-    }
-    setAlertModal({ show: false, title: '', message: '', isSuccess: true });
   };
 
   if (isPageLoading) {
@@ -337,7 +286,41 @@ export default function StudentDashboard() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
+    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
+
+      {/* Toast Alert Message ลอยตรงกลางด้านบน (Top-Middle) */}
+      {toast.show && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-white animate-in slide-in-from-top-4 fade-in duration-300 min-w-[320px] max-w-md border-slate-100">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${toast.type === "success" ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
+            }`}>
+            {toast.type === "success" ? (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 pr-1 text-left">
+            <h4 className="text-xs font-bold text-slate-800">{toast.title}</h4>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{toast.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setToast((prev) => ({ ...prev, show: false }));
+              if (toast.onClose) toast.onClose();
+            }}
+            className="text-slate-400 hover:text-slate-600 text-sm font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 1. Header ด้านบน */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative">
@@ -379,7 +362,7 @@ export default function StudentDashboard() {
         </div>
       </header>
 
-      {/* 3. Main Content */}
+      {/* 2. Main Content */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8">
 
         {/* แถบแจ้งเตือนสแกนหน้า */}
@@ -404,7 +387,7 @@ export default function StudentDashboard() {
         {/* ฟอร์มเข้าร่วมชั้นเรียน */}
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-8">
           <h2 className="text-lg font-black text-slate-800 mb-1">เข้าร่วมชั้นเรียนใหม่</h2>
-          <p className="text-xs text-slate-400 mb-3">กรอกรหัสเข้าร่วม (Join Code 6 หลัก) ที่ได้รับจากอาจารย์ผู้สอน</p>
+          <p className="text-xs text-slate-400 mb-3">กรอกรหัสเข้าร่วมที่ได้รับจากอาจารย์ผู้สอน</p>
           <form onSubmit={handleJoinClick} className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
@@ -459,7 +442,7 @@ export default function StudentDashboard() {
         </div>
       </main>
 
-      {/* 4. Footer */}
+      {/* 3. Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
@@ -531,10 +514,6 @@ export default function StudentDashboard() {
       {showJoinConfirmModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center mx-auto mb-4 font-black text-xl">
-              ✓
-            </div>
-
             <h3 className="text-xl font-black text-slate-800">ยืนยันการเข้าร่วมชั้นเรียน</h3>
             <p className="text-xs text-slate-400 mt-1">
               คุณต้องการเข้าร่วมรายวิชารหัส Join Code <br />
@@ -565,7 +544,7 @@ export default function StudentDashboard() {
                 type="button"
                 disabled={isJoining}
                 onClick={handleConfirmJoinClass}
-                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
               >
                 {isJoining ? 'กำลังเข้าร่วม...' : 'ยืนยัน'}
               </button>
@@ -704,7 +683,7 @@ export default function StudentDashboard() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[90] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
             <div className="text-center mb-4">
-              <h3 className="text-xl font-black text-slate-800">หนังสือแสดงความยินยอมในการเก็บข้อมูลใบหน้า</h3>
+              <h3 className="text-xl font-black text-slate-800">ขอความยินยอมในการเก็บข้อมูลใบหน้า</h3>
               <p className="text-xs text-slate-400 mt-1">ข้อกำหนดการจัดเก็บข้อมูลชีวมิติ (Biometric Data)</p>
             </div>
 
@@ -741,46 +720,11 @@ export default function StudentDashboard() {
                 type="button"
                 disabled={!consented}
                 onClick={handleProceedEnroll}
-                className="flex-[2] py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
-                ยอมรับและไปต่อ
+                ยอมรับ
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Custom Alert Modal */}
-      {alertModal.show && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
-            {alertModal.isSuccess ? (
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-5">
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-            ) : (
-              <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-5">
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-                </svg>
-              </div>
-            )}
-
-            <h3 className="text-xl font-black text-slate-800 mb-1.5">{alertModal.title}</h3>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
-              {alertModal.message}
-            </p>
-
-            <button
-              type="button"
-              onClick={handleCloseAlertModal}
-              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-sm transition-all mx-auto block active:scale-95 cursor-pointer ${alertModal.isSuccess ? 'bg-[#16a34a] hover:bg-[#15803d]' : 'bg-[#dc2626] hover:bg-[#b91c1c]'
-                }`}
-            >
-              ตกลง
-            </button>
           </div>
         </div>
       )}

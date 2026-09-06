@@ -1,23 +1,24 @@
 // attendance-web/app/admin/reports/courses/[id]/history/page.tsx
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function AdminCourseHistoryPage() {
+  const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const courseId = params.id as string;
   const filterDateParam = searchParams.get('date');
-  const filterTimeSlotParam = searchParams.get('timeSlot'); // รับพารามิเตอร์ช่วงเวลา (เช่น 09:00-11:00)
+  const filterTimeSlotParam = searchParams.get('timeSlot');
 
-  // เพิ่ม properties ใหม่ (section, semester, academicYear) ลงใน type ของ courseInfo
   const [courseInfo, setCourseInfo] = useState<{
     courseName: string;
     courseCode: string;
     section?: string;
     semester?: string;
     academicYear?: string;
+    joinCode?: string;
     teacher?: any
   } | null>(null);
 
@@ -31,7 +32,6 @@ export default function AdminCourseHistoryPage() {
     setLoading(true);
     const token = getAuthToken();
     try {
-      // 1. ดึงข้อมูลรายวิชา
       const resCourse = await fetch(`/api/courses/${courseId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -40,7 +40,6 @@ export default function AdminCourseHistoryPage() {
         setCourseInfo(courseJson.data);
       }
 
-      // 2. ดึงประวัติรอบการเช็คชื่อ พร้อมส่ง timeSlot ไปใน Query String
       const queryParams = new URLSearchParams();
       if (filterDateParam) queryParams.append('date', filterDateParam);
       if (filterTimeSlotParam) queryParams.append('timeSlot', filterTimeSlotParam);
@@ -58,7 +57,6 @@ export default function AdminCourseHistoryPage() {
       if (json.success && Array.isArray(json.data)) {
         let list = json.data;
 
-        // 3. กรองช่วงเวลาอย่างแม่นยำ ป้องกันคาบอื่นปะปนเข้ามา
         if (filterTimeSlotParam) {
           const targetSlot = filterTimeSlotParam.trim();
           list = list.filter((session: any) => {
@@ -87,30 +85,30 @@ export default function AdminCourseHistoryPage() {
     }
   }, [courseId, fetchHistory]);
 
+  const teacherName = courseInfo?.teacher?.firstName
+    ? `${courseInfo.teacher.firstName} ${courseInfo.teacher.lastName || ''}`.trim()
+    : courseInfo?.teacher?.name || 'ไม่ระบุอาจารย์';
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
       {/* Header สำหรับ Admin */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
-        <div className="absolute top-6 left-6 flex items-center gap-3">
-          <Link
-            href={`/admin/reports/courses/${courseId}`}
-            className="text-emerald-100 hover:text-white font-bold inline-flex items-center gap-1 text-xs uppercase tracking-wider transition-all"
-          >
-            ← กลับไปหน้ารายงานรายวิชา
-          </Link>
-        </div>
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
           ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         </h1>
-        <div className="text-emerald-100 font-medium text-xs md:text-sm space-y-0.5">
-          <p>
-            วิชา: <span className="font-bold text-white font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> - <span className="font-bold text-white">{courseInfo?.courseName || ''}</span>
-          </p>
-        </div>
       </header>
 
       <nav className="bg-[#0d9488] shadow-inner px-4 overflow-x-auto print:hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-center gap-1 min-w-max">
+          <Link
+            href={`/admin/reports/courses/${courseId}`}
+            className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm text-emerald-50 hover:bg-emerald-700/50 hover:text-white rounded-t-xl transition-all"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            รายงานการเข้าเรียน
+          </Link>
           <button
             type="button"
             className="flex items-center gap-2 px-5 py-3 font-bold text-xs md:text-sm bg-white text-slate-800 shadow rounded-t-xl"
@@ -122,23 +120,45 @@ export default function AdminCourseHistoryPage() {
           </button>
         </div>
       </nav>
+
       {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-        <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 mb-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
+        {/* ปุ่มย้อนกลับ */}
+        <div>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-[#0f766e] transition-colors cursor-pointer"
+          >
+            ← ย้อนกลับ
+          </button>
+        </div>
+
+        {/* การ์ดข้อมูลวิชา (สไตล์เดียวกับหน้าจัดการนักศึกษา) */}
+        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <span className="text-[18px] font-bold text-slate-400">ประวัติการบันทึก</span>
-              <div className="text-xl font-black text-slate-800 flex flex-wrap items-center gap-2 mt-1">
-                <span>วิชา: <span className="text-emerald-700 font-mono">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName ? `${courseInfo.courseName}` : ''}</span>
-                {/* เพิ่มการแสดงกลุ่มเรียน และ ปีการศึกษา */}
-                {courseInfo && (
-                  <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-bold border border-slate-200">
-                    กลุ่ม {courseInfo.section || '-'} | เทอม {courseInfo.semester || '-'}/{courseInfo.academicYear || '-'}
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs text-slate-400 font-bold">
+                  อาจารย์ผู้สอน: <span className="text-slate-700">{teacherName}</span>
+                </span>
+              </div>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                <span className="font-mono text-emerald-700">{courseInfo?.courseCode || 'กำลังโหลด...'}</span> {courseInfo?.courseName || ''}
+              </h2>
+              <div className="flex flex-wrap items-center gap-3 mt-3 text-xs font-bold text-slate-600">
+                <span className="bg-slate-100 px-3 py-1 rounded-md">กลุ่มเรียน: {courseInfo?.section || '-'}</span>
+                <span className="bg-slate-100 px-3 py-1 rounded-md">เทอม: {courseInfo?.semester || '-'}/{courseInfo?.academicYear || '-'}</span>
+                {courseInfo?.joinCode && (
+                  <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-md flex items-center gap-1.5 uppercase tracking-wider shadow-sm">
+                    <span>Join Code:</span> 
+                    <span className="select-all">{courseInfo.joinCode}</span>
                   </span>
                 )}
               </div>
+              
               {(filterDateParam || filterTimeSlotParam) && (
-                <p className="text-xs text-slate-500 font-bold mt-2">
+                <p className="text-xs text-slate-500 font-bold mt-3 pt-3 border-t border-slate-100">
                   {filterDateParam && (
                     <>
                       กรองเฉพาะวันที่: <span className="text-emerald-700 font-mono">{filterDateParam}</span>
@@ -156,9 +176,11 @@ export default function AdminCourseHistoryPage() {
               )}
             </div>
 
-            <span className="text-xs font-bold px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
-              บันทึกแล้วทั้งหมด {sessions.length} รอบ
-            </span>
+            <div className="flex flex-col items-end gap-2">
+              <span className="text-xs font-bold px-3.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                บันทึกแล้วทั้งหมด {sessions.length} รอบ
+              </span>
+            </div>
           </div>
         </div>
 
@@ -244,7 +266,7 @@ export default function AdminCourseHistoryPage() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm">
+      <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
         © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ

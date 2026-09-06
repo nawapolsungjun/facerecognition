@@ -1,6 +1,6 @@
 // attendance-web/app/teacher/dashboard/page.tsx
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -14,12 +14,12 @@ export default function TeacherDashboard() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   // เพิ่มฟิลด์ section, semester, academicYear ใน state สร้างวิชา
-  const [newCourse, setNewCourse] = useState({ 
-    code: "", 
-    name: "", 
-    section: "1", 
-    semester: "1", 
-    academicYear: "2569" 
+  const [newCourse, setNewCourse] = useState({
+    code: "",
+    name: "",
+    section: "1",
+    semester: "1",
+    academicYear: "2569"
   });
   const [teacherInfo, setTeacherInfo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -42,19 +42,28 @@ export default function TeacherDashboard() {
   const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
   const [courseToRestore, setCourseToRestore] = useState<any>(null);
 
-  // State สำหรับ Custom Alert / Success Popup
-  const [alertModal, setAlertModal] = useState<{
+  // State สำหรับ Toast Alert Message ลอยตรงกลางด้านบน (หายเองอัตโนมัติ)
+  const [toast, setToast] = useState<{
     show: boolean;
+    type: "success" | "error";
     title: string;
     message: string;
-    isSuccess?: boolean;
-    onClose?: () => void;
   }>({
     show: false,
+    type: "success",
     title: "",
     message: "",
-    isSuccess: true,
   });
+
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((type: "success" | "error", title: string, message: string, duration = 3500) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ show: true, type, title, message });
+    toastTimerRef.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, show: false }));
+    }, duration);
+  }, []);
 
   const executeLogout = useCallback(() => {
     localStorage.removeItem("teacher_user");
@@ -176,12 +185,7 @@ export default function TeacherDashboard() {
   const handleOpenProfileConfirm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editData.firstName.trim() || !editData.lastName.trim()) {
-      setAlertModal({
-        show: true,
-        title: "ข้อมูลไม่ครบถ้วน",
-        message: "กรุณากรอกชื่อจริงและนามสกุล",
-        isSuccess: false,
-      });
+      showToast("error", "ข้อมูลไม่ครบถ้วน", "กรุณากรอกชื่อจริงและนามสกุล");
       return;
     }
 
@@ -189,30 +193,15 @@ export default function TeacherDashboard() {
     const isChangingPassword = editData.newPassword || editData.oldPassword || editData.confirmPassword;
     if (isChangingPassword) {
       if (!editData.oldPassword) {
-        setAlertModal({
-          show: true,
-          title: "ข้อมูลไม่ครบถ้วน",
-          message: "กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน",
-          isSuccess: false,
-        });
+        showToast("error", "ข้อมูลไม่ครบถ้วน", "กรุณากรอกรหัสผ่านเดิมเพื่อยืนยันการเปลี่ยนรหัสผ่าน");
         return;
       }
       if (!editData.newPassword) {
-        setAlertModal({
-          show: true,
-          title: "ข้อมูลไม่ครบถ้วน",
-          message: "กรุณากรอกรหัสผ่านใหม่",
-          isSuccess: false,
-        });
+        showToast("error", "ข้อมูลไม่ครบถ้วน", "กรุณากรอกรหัสผ่านใหม่");
         return;
       }
       if (editData.newPassword !== editData.confirmPassword) {
-        setAlertModal({
-          show: true,
-          title: "รหัสผ่านไม่ตรงกัน",
-          message: "รหัสผ่านใหม่และยืนยันรหัสผ่านใหม่ไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง",
-          isSuccess: false,
-        });
+        showToast("error", "รหัสผ่านไม่ตรงกัน", "รหัสผ่านใหม่และยืนยันรหัสผ่านใหม่ไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง");
         return;
       }
     }
@@ -222,12 +211,7 @@ export default function TeacherDashboard() {
 
   const handleConfirmUpdateProfile = async () => {
     if (!teacherInfo?.id) {
-      setAlertModal({
-        show: true,
-        title: "เกิดข้อผิดพลาด",
-        message: "ไม่พบข้อมูล ID ผู้ใช้",
-        isSuccess: false,
-      });
+      showToast("error", "เกิดข้อผิดพลาด", "ไม่พบข้อมูล ID ผู้ใช้");
       return;
     }
 
@@ -256,13 +240,8 @@ export default function TeacherDashboard() {
         setIsEditModalOpen(false);
 
         if (editData.newPassword && editData.newPassword.length > 0) {
-          setAlertModal({
-            show: true,
-            title: "เปลี่ยนรหัสผ่านสำเร็จ",
-            message: "เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่อีกครั้ง",
-            isSuccess: true,
-            onClose: () => executeLogout(),
-          });
+          showToast("success", "เปลี่ยนรหัสผ่านสำเร็จ", "เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่อีกครั้ง", 2000);
+          setTimeout(() => executeLogout(), 2000);
           return;
         }
 
@@ -277,29 +256,14 @@ export default function TeacherDashboard() {
         localStorage.setItem("teacher_user", JSON.stringify(updatedUser));
         setTeacherInfo(updatedUser);
 
-        setAlertModal({
-          show: true,
-          title: "แก้ไขข้อมูลเรียบร้อย",
-          message: "ข้อมูลอาจารย์ถูกแก้ไขเรียบร้อยแล้ว",
-          isSuccess: true,
-        });
+        showToast("success", "แก้ไขข้อมูลเรียบร้อย", "ข้อมูลอาจารย์ถูกแก้ไขเรียบร้อยแล้ว");
       } else {
         setShowProfileConfirmModal(false);
-        setAlertModal({
-          show: true,
-          title: "เกิดข้อผิดพลาด",
-          message: data.error || "เกิดข้อผิดพลาดในการอัปเดตข้อมูล",
-          isSuccess: false,
-        });
+        showToast("error", "เกิดข้อผิดพลาด", data.error || "เกิดข้อผิดพลาดในการอัปเดตข้อมูล");
       }
     } catch {
       setShowProfileConfirmModal(false);
-      setAlertModal({
-        show: true,
-        title: "เกิดข้อผิดพลาด",
-        message: "ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้",
-        isSuccess: false,
-      });
+      showToast("error", "เกิดข้อผิดพลาด", "ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้");
     } finally {
       setIsUpdating(false);
     }
@@ -308,12 +272,7 @@ export default function TeacherDashboard() {
   const handleOpenCourseConfirm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCourse.code.trim() || !newCourse.name.trim() || !newCourse.section.trim() || !newCourse.academicYear.trim()) {
-      setAlertModal({
-        show: true,
-        title: "ข้อมูลไม่ครบถ้วน",
-        message: "กรุณากรอกข้อมูลรายวิชาให้ครบถ้วน",
-        isSuccess: false,
-      });
+      showToast("error", "ข้อมูลไม่ครบถ้วน", "กรุณากรอกข้อมูลรายวิชาให้ครบถ้วน");
       return;
     }
     setShowCourseConfirmModal(true);
@@ -345,29 +304,14 @@ export default function TeacherDashboard() {
         setIsModalOpen(false);
         setNewCourse({ code: "", name: "", section: "1", semester: "1", academicYear: "2569" });
         loadAllCourses(token);
-        setAlertModal({
-          show: true,
-          title: "สร้างรายวิชาสำเร็จเรียบร้อย",
-          message: `รายวิชา ${newCourse.name.trim()} (กลุ่ม ${newCourse.section}) ถูกเพิ่มเข้าสู่ระบบเรียบร้อยแล้ว`,
-          isSuccess: true,
-        });
+        showToast("success", "สร้างรายวิชาสำเร็จเรียบร้อย", `รายวิชา ${newCourse.name.trim()} (กลุ่ม ${newCourse.section}) ถูกเพิ่มเข้าสู่ระบบเรียบร้อยแล้ว`);
       } else {
         setShowCourseConfirmModal(false);
-        setAlertModal({
-          show: true,
-          title: "เกิดข้อผิดพลาด",
-          message: data.error || "สร้างรายวิชาไม่สำเร็จ",
-          isSuccess: false,
-        });
+        showToast("error", "เกิดข้อผิดพลาด", data.error || "สร้างรายวิชาไม่สำเร็จ");
       }
     } catch {
       setShowCourseConfirmModal(false);
-      setAlertModal({
-        show: true,
-        title: "เกิดข้อผิดพลาด",
-        message: "เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์",
-        isSuccess: false,
-      });
+      showToast("error", "เกิดข้อผิดพลาด", "เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
     } finally {
       setIsLoading(false);
     }
@@ -390,37 +334,15 @@ export default function TeacherDashboard() {
       if (res.ok) {
         setCourseToRestore(null);
         if (token) loadAllCourses(token);
-        setAlertModal({
-          show: true,
-          title: "กู้คืนรายวิชาเรียบร้อย",
-          message: `นำรายวิชา ${restoredCourseName} กลับมาเปิดสอนตามปกติแล้ว`,
-          isSuccess: true,
-        });
+        showToast("success", "กู้คืนรายวิชาเรียบร้อย", `นำรายวิชา ${restoredCourseName} กลับมาเปิดสอนตามปกติแล้ว`);
       } else {
         setCourseToRestore(null);
-        setAlertModal({
-          show: true,
-          title: "เกิดข้อผิดพลาด",
-          message: "ไม่สามารถกู้คืนรายวิชาได้",
-          isSuccess: false,
-        });
+        showToast("error", "เกิดข้อผิดพลาด", "ไม่สามารถกู้คืนรายวิชาได้");
       }
     } catch {
       setCourseToRestore(null);
-      setAlertModal({
-        show: true,
-        title: "เกิดข้อผิดพลาด",
-        message: "เกิดข้อผิดพลาดในการเชื่อมต่อ",
-        isSuccess: false,
-      });
+      showToast("error", "เกิดข้อผิดพลาด", "เกิดข้อผิดพลาดในการเชื่อมต่อ");
     }
-  };
-
-  const handleCloseAlertModal = () => {
-    if (alertModal.onClose) {
-      alertModal.onClose();
-    }
-    setAlertModal({ show: false, title: "", message: "", isSuccess: true });
   };
 
   const displayCourses =
@@ -429,7 +351,38 @@ export default function TeacherDashboard() {
   if (!teacherInfo) return null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800">
+    <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
+      {/* Toast Alert Message ลอยตรงกลางด้านบน (Top-Middle) */}
+      {toast.show && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-white animate-in slide-in-from-top-4 fade-in duration-300 min-w-[320px] max-w-md border-slate-100">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${toast.type === "success" ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
+            }`}>
+            {toast.type === "success" ? (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 pr-1 text-left">
+            <h4 className="text-xs font-bold text-slate-800">{toast.title}</h4>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{toast.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToast((prev) => ({ ...prev, show: false }))}
+            className="text-slate-400 hover:text-slate-600 text-sm font-bold ml-2 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* 1. Header ด้านบน */}
       <header className="bg-[#0f766e] text-white py-6 px-4 md:px-8 shadow-sm">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
@@ -477,11 +430,10 @@ export default function TeacherDashboard() {
           <button
             type="button"
             onClick={() => setActiveTab("ACTIVE")}
-            className={`flex items-center gap-2 px-6 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${
-              activeTab === "ACTIVE"
+            className={`flex items-center gap-2 px-6 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${activeTab === "ACTIVE"
                 ? "bg-white text-slate-800 shadow"
                 : "text-emerald-50 hover:bg-emerald-700/50 hover:text-white"
-            }`}
+              }`}
           >
             <svg
               className="w-4 h-4"
@@ -502,11 +454,10 @@ export default function TeacherDashboard() {
           <button
             type="button"
             onClick={() => setActiveTab("ARCHIVED")}
-            className={`flex items-center gap-2 px-6 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${
-              activeTab === "ARCHIVED"
+            className={`flex items-center gap-2 px-6 py-3 font-bold text-xs md:text-sm rounded-t-xl transition-all cursor-pointer ${activeTab === "ARCHIVED"
                 ? "bg-white text-slate-800 shadow"
                 : "text-emerald-50 hover:bg-emerald-700/50 hover:text-white"
-            }`}
+              }`}
           >
             <svg
               className="w-4 h-4"
@@ -545,7 +496,7 @@ export default function TeacherDashboard() {
                     className={`${activeTab === "ARCHIVED" ? "bg-slate-700" : "bg-emerald-700"} p-6 text-white relative`}
                   >
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-emerald-100 font-mono text-xs font-bold uppercase tracking-wider">
+                      <span className="text-white font-mono text-xs font-bold uppercase tracking-wider">
                         {course.courseCode}
                       </span>
                       {activeTab === "ARCHIVED" && (
@@ -557,10 +508,10 @@ export default function TeacherDashboard() {
                     <h2 className="text-xl font-bold truncate text-white">
                       {course.courseName}
                     </h2>
-                    
+
                     {/* แสดงกลุ่มเรียน เทอม/ปี และ Join Code บนการ์ด */}
                     <div className="mt-2 space-y-1.5 text-xs">
-                      <div className="text-emerald-100 font-medium">
+                      <div className="text-white font-medium">
                         กลุ่ม {course.section || '1'} • เทอม {course.semester || '1'}/{course.academicYear || '2569'}
                       </div>
                       <div className="inline-flex items-center gap-1.5 bg-white/20 px-2.5 py-1 rounded-lg font-mono font-bold tracking-wider">
@@ -604,7 +555,7 @@ export default function TeacherDashboard() {
                             d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                           />
                         </svg>
-                        เริ่มเช็คชื่อ
+                        เช็คชื่อ
                       </Link>
                     )}
 
@@ -619,7 +570,7 @@ export default function TeacherDashboard() {
                         href={`/teacher/course/${course.id}/students`}
                         className="flex items-center justify-center py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-slate-700 text-xs font-bold hover:bg-slate-100 transition-all shadow-2xs"
                       >
-                        จัดการรายชื่อ
+                        จัดการรายวิชา
                       </Link>
                     </div>
                   </div>
@@ -738,9 +689,9 @@ export default function TeacherDashboard() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-[2] py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer active:scale-95"
+                  className="flex-1 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer active:scale-95"
                 >
-                  ตกลงสร้างวิชา
+                  ยืนยัน
                 </button>
               </div>
             </form>
@@ -755,9 +706,6 @@ export default function TeacherDashboard() {
             <h3 className="text-xl font-black text-slate-800 mb-1">
               ยืนยันการสร้างรายวิชา
             </h3>
-            <p className="text-xs text-slate-400">
-              กรุณาตรวจสอบความถูกต้องก่อนสร้างรายวิชาใหม่
-            </p>
 
             <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
               <div className="flex justify-between">
@@ -795,15 +743,15 @@ export default function TeacherDashboard() {
                 onClick={() => setShowCourseConfirmModal(false)}
                 className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
-                แก้ไข
+                ยกเลิก
               </button>
               <button
                 type="button"
                 disabled={isLoading}
                 onClick={handleConfirmCreateCourse}
-                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
-                {isLoading ? "กำลังสร้าง..." : "ยืนยันสร้างวิชา"}
+                {isLoading ? "กำลังสร้าง..." : "ยืนยัน"}
               </button>
             </div>
           </div>
@@ -854,7 +802,7 @@ export default function TeacherDashboard() {
               {/* ส่วนเปลี่ยนรหัสผ่านแบบครบถ้วน 3 ช่อง */}
               <div className="space-y-3 pt-3 border-t border-slate-100">
                 <h4 className="text-xs font-bold text-slate-700">เปลี่ยนรหัสผ่าน (กรอกเมื่อต้องการเปลี่ยน)</h4>
-                
+
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">รหัสผ่านเดิม</label>
                   <input
@@ -899,9 +847,9 @@ export default function TeacherDashboard() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-[2] py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer"
                 >
-                  บันทึกข้อมูล
+                  บันทึก
                 </button>
               </div>
             </form>
@@ -914,11 +862,8 @@ export default function TeacherDashboard() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <h3 className="text-xl font-black text-slate-800 mb-1">
-              ยืนยันการบันทึกข้อมูล
+              ตรวจสอบความถูกต้อง
             </h3>
-            <p className="text-xs text-slate-400">
-              กรุณาตรวจสอบความถูกต้องของข้อมูลส่วนตัว
-            </p>
 
             <div className="bg-slate-50 rounded-xl p-4 my-5 text-xs text-slate-600 text-left space-y-2 border border-slate-200/60">
               <div className="flex justify-between">
@@ -948,13 +893,13 @@ export default function TeacherDashboard() {
                 onClick={() => setShowProfileConfirmModal(false)}
                 className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
-                แก้ไข
+                ยกเลิก
               </button>
               <button
                 type="button"
                 disabled={isUpdating}
                 onClick={handleConfirmUpdateProfile}
-                className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
                 {isUpdating ? "กำลังบันทึก..." : "ยืนยัน"}
               </button>
@@ -989,9 +934,9 @@ export default function TeacherDashboard() {
               <button
                 type="button"
                 onClick={handleConfirmRestoreCourse}
-                className="flex-[2] bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
-                นำกลับมาเปิดสอน
+                ยืนยัน
               </button>
             </div>
           </div>
@@ -1025,58 +970,6 @@ export default function TeacherDashboard() {
                 ออกจากระบบ
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Custom Modal: แจ้งเตือนสำเร็จ / ข้อผิดพลาด */}
-      {alertModal.show && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center animate-in zoom-in-95 duration-200">
-            {alertModal.isSuccess ? (
-              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg
-                  className="w-7 h-7"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-            ) : (
-              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg
-                  className="w-7 h-7"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-                </svg>
-              </div>
-            )}
-
-            <h3 className="text-lg font-black text-slate-800 mb-1">
-              {alertModal.title}
-            </h3>
-            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
-              {alertModal.message}
-            </p>
-
-            <button
-              type="button"
-              onClick={handleCloseAlertModal}
-              className={`w-28 py-2.5 text-white rounded-xl text-xs md:text-sm font-bold shadow-xs transition-all mx-auto block active:scale-95 cursor-pointer ${
-                alertModal.isSuccess
-                  ? "bg-emerald-700 hover:bg-emerald-800"
-                  : "bg-red-600 hover:bg-red-700"
-              }`}
-            >
-              ตกลง
-            </button>
           </div>
         </div>
       )}
