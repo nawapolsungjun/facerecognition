@@ -1,4 +1,5 @@
 // attendance-web/app/student/re-enroll/page.tsx
+// attendance-web/app/student/re-enroll/page.tsx
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -6,8 +7,14 @@ import Webcam from 'react-webcam';
 import Link from 'next/link';
 import * as faceapi from 'face-api.js';
 
-// URL เชื่อมต่อ AI Backend (ดึงจาก Environment Variable หรือใช้ค่าเริ่มต้น)
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+
+// กำหนดความละเอียดกล้องให้เป็น Full HD / HD เพื่อความคมชัดสูงสุดของใบหน้า
+const VIDEO_CONSTRAINTS = {
+  width: { ideal: 1920, min: 1280 },
+  height: { ideal: 1080, min: 720 },
+  facingMode: 'user',
+};
 
 // ลำดับมุมและท่าทางที่ต้องการให้ตรวจจับ
 const SCAN_STEPS = [
@@ -18,39 +25,71 @@ const SCAN_STEPS = [
   { id: 'UP', label: 'เงยหน้าขึ้นเล็กน้อย', hint: 'เชิดคางขึ้นเบาๆ ให้เห็นมุมเงย' },
 ];
 
-// ข้อมูลภาพตัวอย่างท่าทางใบหน้าแนะนำ (ดึงจากไฟล์ ex1.png ถึง ex5.png ในโฟลเดอร์ public)
+// ข้อมูลภาพตัวอย่างท่าทางใบหน้าแนะนำ
 const POSE_GUIDES = [
-  {
-    title: 'หน้าตรง',
-    angle: '0°',
-    desc: 'มองตรงระดับสายตา',
-    imgSrc: '/ex1.png', 
-  },
-  {
-    title: 'หันซ้าย',
-    angle: '45°',
-    desc: 'เอียงซ้ายพอประมาณ',
-    imgSrc: '/ex2.png',
-  },
-  {
-    title: 'หันขวา',
-    angle: '45°',
-    desc: 'เอียงขวาพอประมาณ',
-    imgSrc: '/ex3.png',
-  },
-  {
-    title: 'ก้มหน้า',
-    angle: '15°-20°',
-    desc: 'ก้มศีรษะลงเบาๆ',
-    imgSrc: '/ex4.png',
-  },
-  {
-    title: 'เงยหน้า',
-    angle: '15°-20°',
-    desc: 'เชิดคางขึ้นเล็กน้อย',
-    imgSrc: '/ex5.png',
-  },
+  { title: 'หน้าตรง', angle: '0°', desc: 'มองตรงระดับสายตา', imgSrc: '/ex1.png' },
+  { title: 'หันซ้าย', angle: '45°', desc: 'เอียงซ้ายพอประมาณ', imgSrc: '/ex2.png' },
+  { title: 'หันขวา', angle: '45°', desc: 'เอียงขวาพอประมาณ', imgSrc: '/ex3.png' },
+  { title: 'ก้มหน้า', angle: '15°-20°', desc: 'ก้มศีรษะลงเบาๆ', imgSrc: '/ex4.png' },
+  { title: 'เงยหน้า', angle: '15°-20°', desc: 'เชิดคางขึ้นเล็กน้อย', imgSrc: '/ex5.png' },
 ];
+
+// ฟังก์ชันหาค่าเฉลี่ยเวกเตอร์ 128 มิติจากหลายเฟรม (Multi-Frame Vector Averaging)
+function averageVectors(vectors: number[][]): number[] {
+  if (vectors.length === 1) return vectors[0];
+  const dim = vectors[0].length; // 128 มิติ
+  const avg = new Array(dim).fill(0);
+  
+  for (const vec of vectors) {
+    for (let i = 0; i < dim; i++) {
+      avg[i] += vec[i];
+    }
+  }
+  
+  for (let i = 0; i < dim; i++) {
+    avg[i] /= vectors.length;
+  }
+  return avg;
+}
+
+// ฟังก์ชันครอบตัดเฉพาะใบหน้าจากรูปภาพต้นฉบับ พร้อม Padding 18%
+async function cropFaceFromFile(file: File): Promise<File> {
+  const img = await faceapi.bufferToImage(file);
+  
+  const detection = await faceapi.detectSingleFace(
+    img,
+    new faceapi.SsdMobilenetv1Options({ minConfidence: 0.40 })
+  );
+  
+  if (!detection) {
+    throw new Error(`ระบบไม่พบใบหน้าในรูปภาพ ${file.name} กรุณาเปลี่ยนรูปใหม่`);
+  }
+
+  const { x, y, width, height } = detection.box;
+  const padX = Math.round(width * 0.18);
+  const padY = Math.round(height * 0.18);
+
+  const cropX = Math.max(0, x - padX);
+  const cropY = Math.max(0, y - padY);
+  const cropW = Math.min(img.width - cropX, width + padX * 2);
+  const cropH = Math.min(img.height - cropY, height + padY * 2);
+  
+  const canvas = document.createElement('canvas');
+  canvas.width = cropW;
+  canvas.height = cropH;
+  const ctx = canvas.getContext('2d');
+  
+  if (!ctx) throw new Error('เกิดข้อผิดพลาดในการประมวลผลรูปภาพ');
+
+  ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error('แปลงไฟล์ไม่สำเร็จ'));
+      resolve(new File([blob], `cropped_${file.name}`, { type: 'image/jpeg' }));
+    }, 'image/jpeg', 0.90);
+  });
+}
 
 export default function ReEnrollPage() {
   const router = useRouter();
@@ -74,6 +113,9 @@ export default function ReEnrollPage() {
   const [isScanningActive, setIsScanningActive] = useState(false);
   const [isPoseMatched, setIsPoseMatched] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // State สำหรับแสดงผลการเก็บ Multi-Frame
+  const [frameCaptureStatus, setFrameCaptureStatus] = useState<string>('');
 
   const isCapturingRef = useRef(false);
   const poseHoldCounterRef = useRef(0);
@@ -197,11 +239,22 @@ export default function ReEnrollPage() {
 
       let allFinalVectors = [...vectorsToSave];
 
+      // ครอบตัดใบหน้าและส่ง API
       if (files && files.length > 0) {
-        setStatus('กำลังสกัดข้อมูลจากไฟล์รูปภาพ...');
+        setStatus('กำลังวิเคราะห์และครอบตัดเฉพาะใบหน้าจากรูปภาพ...');
         const faceFormData = new FormData();
-        Array.from(files).forEach(file => faceFormData.append('files', file));
 
+        const fileArray = Array.from(files);
+        for (let i = 0; i < fileArray.length; i++) {
+          try {
+            const croppedFile = await cropFaceFromFile(fileArray[i]);
+            faceFormData.append('files', croppedFile);
+          } catch (err: any) {
+            throw new Error(`รูปที่ ${i + 1}: ${err.message}`);
+          }
+        }
+
+        setStatus('กำลังส่งข้อมูลใบหน้าไปประมวลผลบนเซิร์ฟเวอร์ AI...');
         const aiResponse = await fetch(`${AI_BASE_URL}/api/register-face-multi`, {
           method: 'POST',
           body: faceFormData
@@ -218,7 +271,7 @@ export default function ReEnrollPage() {
       }
 
       if (allFinalVectors.length < 3) {
-        throw new Error('กรุณาอัปโหลดรูปหรือสแกนหน้า รวมกันอย่างน้อย 3 ข้อมูลขึ้นไป');
+        throw new Error('กรุณาอัปโหลดรูปหรือสแกนหน้า รวมกันอย่างน้อย 3 มุมมองขึ้นไป');
       }
 
       setStatus('กำลังอัปเดตข้อมูลใบหน้าลงฐานข้อมูล...');
@@ -258,68 +311,88 @@ export default function ReEnrollPage() {
     }
   };
 
-  // ดำเนินการจับภาพเมื่อทำท่าทางสำเร็จ
+  // ดำเนินการจับภาพ Multi-Frame Capture (5 เฟรมต่อเนื่อง เว้นช่วงละ 200ms) + Vector Averaging
   const executeStepCapture = useCallback(async (currentStepIdx: number) => {
     if (!webcamRef.current || isCapturingRef.current) return;
     isCapturingRef.current = true;
 
-    setStatus(`กำลังประมวลผล: ${SCAN_STEPS[currentStepIdx].label}...`);
-    const imageSrc = webcamRef.current.getScreenshot();
-
-    if (!imageSrc) {
-      isCapturingRef.current = false;
-      return;
-    }
+    const totalFramesToCapture = 5;
+    const delayBetweenFramesMs = 200;
+    const collectedVectors: number[][] = [];
+    let representativeThumb = '';
 
     try {
-      const res = await fetch(`${AI_BASE_URL}/api/extract-vector`, {
-        method: 'POST',
-        body: JSON.stringify({ image: imageSrc }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (!res.ok) {
-        throw new Error('AI Server responded with error');
-      }
+      for (let frameIdx = 0; frameIdx < totalFramesToCapture; frameIdx++) {
+        setFrameCaptureStatus(`กำลังบันทึกเฟรมที่ ${frameIdx + 1}/${totalFramesToCapture}`);
+        setStatus(`กำลังสแกนท่า ${SCAN_STEPS[currentStepIdx].label} (เฟรมที่ ${frameIdx + 1}/${totalFramesToCapture})...`);
 
-      const data = await res.json();
-
-      if (data.success && data.vector) {
-        setCapturedVectors(prev => {
-          const nextVectors = [...prev, data.vector];
-          const nextThumbs = [...capturedThumbs, imageSrc];
-          setCapturedThumbs(nextThumbs);
-
-          const nextStep = currentStepIdx + 1;
-          const progress = Math.min(Math.round((nextStep / SCAN_STEPS.length) * 100), 100);
-          setScanStepIndex(nextStep);
-          setScanProgress(progress);
-          setIsPoseMatched(false);
-          poseHoldCounterRef.current = 0;
-
-          if (nextStep < SCAN_STEPS.length) {
-            setStatus(`บันทึกมุมที่ ${currentStepIdx + 1} เรียบร้อย กรุณาทำท่า: ${SCAN_STEPS[nextStep].label}`);
-            setTimeout(() => {
-              isCapturingRef.current = false;
-            }, 700);
-          } else {
-            setIsScanningActive(false);
-            setStatus('สแกนครบทุกมุมแล้ว กำลังบันทึกข้อมูลอัตโนมัติ...');
-            handleFinalSave(nextVectors);
+        const imageSrc = webcamRef.current?.getScreenshot();
+        if (imageSrc) {
+          if (!representativeThumb) representativeThumb = imageSrc;
+          try {
+            const res = await fetch(`${AI_BASE_URL}/api/extract-vector`, {
+              method: 'POST',
+              body: JSON.stringify({ image: imageSrc }),
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (data.success && data.vector) {
+              collectedVectors.push(data.vector);
+            }
+          } catch {
+            // ข้ามเฟรมที่มีปัญหา
           }
-          return nextVectors;
-        });
-      } else {
-        setStatus('ไม่สามารถสกัดเวกเตอร์ใบหน้าได้ กรุณาลองใหม่อีกครั้ง');
-        isCapturingRef.current = false;
+        }
+
+        // หน่วงเวลา 200ms ก่อนจับเฟรมถัดไป
+        if (frameIdx < totalFramesToCapture - 1) {
+          await new Promise((resolve) => setTimeout(resolve, delayBetweenFramesMs));
+        }
       }
+
+      setFrameCaptureStatus('');
+
+      if (collectedVectors.length < 2) {
+        setStatus(`ภาพบางเฟรมไม่ชัดหรือมืดเกินไป กรุณานิ่งไว้ชั่วครู่และลองใหม่อีกครั้ง`);
+        isCapturingRef.current = false;
+        return;
+      }
+
+      // นำเวกเตอร์ทั้ง 5 เฟรมมาหาค่าเฉลี่ย (Vector Averaging)
+      const finalAveragedVector = averageVectors(collectedVectors);
+
+      setCapturedVectors((prev) => {
+        const nextVectors = [...prev, finalAveragedVector];
+        const nextThumbs = [...capturedThumbs, representativeThumb];
+        setCapturedThumbs(nextThumbs);
+
+        const nextStep = currentStepIdx + 1;
+        const progress = Math.min(Math.round((nextStep / SCAN_STEPS.length) * 100), 100);
+        setScanStepIndex(nextStep);
+        setScanProgress(progress);
+        setIsPoseMatched(false);
+        poseHoldCounterRef.current = 0;
+
+        if (nextStep < SCAN_STEPS.length) {
+          setStatus(`บันทึกมุมที่ ${currentStepIdx + 1} เรียบร้อย กรุณาทำท่า: ${SCAN_STEPS[nextStep].label}`);
+          setTimeout(() => {
+            isCapturingRef.current = false;
+          }, 800);
+        } else {
+          setIsScanningActive(false);
+          setStatus('สแกนครบทุกมุมแล้ว กำลังบันทึกข้อมูลอัตโนมัติ...');
+          handleFinalSave(nextVectors);
+        }
+        return nextVectors;
+      });
     } catch {
-      setStatus('เกิดข้อผิดพลาดในการส่งข้อมูลไปยัง AI กรุณาลองใหม่');
+      setFrameCaptureStatus('');
+      setStatus(`เกิดข้อผิดพลาดในการประมวลผลเวกเตอร์ กรุณาลองใหม่อีกครั้ง`);
       isCapturingRef.current = false;
     }
   }, [capturedThumbs]);
 
-  // ระบบประมวลผล Pose Detection แบบเรียลไทม์
+  // ระบบประมวลผล Pose Detection แบบเรียลไทม์ (minConfidence: 0.40)
   useEffect(() => {
     if (!isScanningActive || !isModelsLoaded || regMode !== 'scan') return;
 
@@ -332,7 +405,7 @@ export default function ReEnrollPage() {
 
       try {
         const detection = await faceapi
-          .detectSingleFace(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.45 }))
+          .detectSingleFace(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.40 }))
           .withFaceLandmarks();
 
         if (!detection) {
@@ -362,21 +435,22 @@ export default function ReEnrollPage() {
         let matched = false;
 
         if (currentStep.id === 'STRAIGHT') {
-          matched = yawRatio >= 0.72 && yawRatio <= 1.38 && pitchRatio >= 0.55 && pitchRatio <= 0.95;
+          matched = yawRatio >= 0.70 && yawRatio <= 1.42 && pitchRatio >= 0.52 && pitchRatio <= 0.98;
         } else if (currentStep.id === 'LEFT') {
-          matched = yawRatio >= 1.40 || yawRatio <= 0.65;
+          matched = yawRatio >= 1.35 || yawRatio <= 0.65;
         } else if (currentStep.id === 'RIGHT') {
-          matched = yawRatio <= 0.65 || yawRatio >= 1.40;
+          matched = yawRatio <= 0.65 || yawRatio >= 1.35;
         } else if (currentStep.id === 'DOWN') {
-          matched = pitchRatio >= 0.90;
+          matched = pitchRatio >= 0.88;
         } else if (currentStep.id === 'UP') {
-          matched = pitchRatio <= 0.58;
+          matched = pitchRatio <= 0.60;
         }
 
         if (matched) {
           setIsPoseMatched(true);
           poseHoldCounterRef.current += 1;
 
+          // เมื่อทรงตัวอยู่ในมุมเดิม 2 รอบติดต่อกัน ให้เริ่มสกัด Multi-Frame
           if (poseHoldCounterRef.current >= 2) {
             executeStepCapture(scanStepIndex);
           }
@@ -401,6 +475,7 @@ export default function ReEnrollPage() {
     setIsPoseMatched(false);
     isCapturingRef.current = false;
     poseHoldCounterRef.current = 0;
+    setFrameCaptureStatus('');
     setStatus(`เริ่มการตรวจจับ: ${SCAN_STEPS[0].label}`);
   };
 
@@ -413,6 +488,7 @@ export default function ReEnrollPage() {
     setIsPoseMatched(false);
     isCapturingRef.current = false;
     poseHoldCounterRef.current = 0;
+    setFrameCaptureStatus('');
     setStatus('รีเซ็ตเรียบร้อย กดปุ่มเพื่อเริ่มสแกนใหม่');
   };
 
@@ -525,7 +601,7 @@ export default function ReEnrollPage() {
           {/* 1. โหมด Upload รูปภาพ */}
           <div className={`${regMode === 'upload' ? 'block' : 'hidden'} animate-in fade-in space-y-4`}>
             
-            {/* คำแนะนำและตัวอย่าง 5 มุมหน้า (พร้อมภาพตัวอย่าง ex1.png ถึง ex5.png และฟอนต์ขนาดใหญ่) */}
+            {/* คำแนะนำและตัวอย่าง 5 มุมหน้า */}
             <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-4 md:p-6">
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
@@ -537,7 +613,7 @@ export default function ReEnrollPage() {
                 เพื่อให้ระบบ AI ตรวจจับและรู้จำใบหน้าได้อย่างแม่นยำที่สุด ควรถ่ายในที่มีแสงสว่างชัดเจน ไม่สวมแว่นตาดำหรือแมสก์ ตามตัวอย่างมุมด้านล่างนี้:
               </p>
 
-              {/* การ์ดแสดง 5 ท่าทางแนะนำ พร้อมภาพตัวอย่าง ex1.png ถึง ex5.png */}
+              {/* การ์ดแสดง 5 ท่าทางแนะนำ */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
                 {POSE_GUIDES.map((guide, idx) => (
                   <div key={idx} className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 text-center shadow-xs flex flex-col items-center justify-between">
@@ -570,7 +646,12 @@ export default function ReEnrollPage() {
               {previews.length > 0 && (
                 <div className="flex flex-wrap justify-center gap-2 mt-4">
                   {previews.map((src, i) => (
-                    <img key={i} src={src} alt={`preview-${i}`} className="w-14 h-14 object-cover rounded-xl border border-slate-200" />
+                    <div key={i} className="relative">
+                      <img src={src} alt={`preview-${i}`} className="w-16 h-16 object-cover rounded-xl border border-slate-200 shadow-2xs" />
+                      <span className="absolute -top-1.5 -right-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow">
+                        {i + 1}
+                      </span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -604,13 +685,14 @@ export default function ReEnrollPage() {
 
             {/* หน้าต่างแสดงภาพกล้องพร้อมสถานะตรวจจับท่าทาง */}
             <div className="flex flex-col items-center p-5 bg-slate-50 rounded-xl border border-slate-200/80">
-              <div className={`w-48 h-48 rounded-full overflow-hidden border-4 mb-4 relative shadow-sm bg-black transition-all duration-300 ${
+              <div className={`w-52 h-52 rounded-full overflow-hidden border-4 mb-4 relative shadow-sm bg-black transition-all duration-300 ${
                 isPoseMatched ? 'border-emerald-500 ring-4 ring-emerald-300/50' : 'border-slate-300'
               }`}>
                 <Webcam
                   audio={false}
                   ref={webcamRef}
                   screenshotFormat="image/jpeg"
+                  videoConstraints={VIDEO_CONSTRAINTS}
                   className="w-full h-full object-cover scale-x-[-1]"
                 />
 
@@ -621,7 +703,7 @@ export default function ReEnrollPage() {
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'bg-slate-900/70 text-slate-200'
                   }`}>
-                    {isPoseMatched ? 'ตรวจพบท่าทางแล้ว' : 'กำลังรอตรวจจับ...'}
+                    {frameCaptureStatus || (isPoseMatched ? 'ตรวจพบท่าทางแล้ว' : 'กำลังรอตรวจจับ...')}
                   </span>
                 </div>
               </div>
@@ -649,7 +731,7 @@ export default function ReEnrollPage() {
                     กรุณาทำท่า: {SCAN_STEPS[scanStepIndex].label}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    เมื่อระบบตรวจจับท่าทางถูกต้อง จะบันทึกภาพให้อัตโนมัติ
+                    เมื่อตรวจพบท่าทาง ระบบจะเก็บภาพต่อเนื่อง 5 เฟรมและหาค่าเฉลี่ยเพื่อความแม่นยำสูงสุด
                   </p>
                 </div>
               )}
