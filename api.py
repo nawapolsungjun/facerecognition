@@ -27,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL","postgresql://postgres:Nure1119100004682@localhost:5432/attendance_db?schema=public")
 
 def get_db_connection():
     if not DATABASE_URL:
