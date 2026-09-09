@@ -21,6 +21,29 @@ interface StudentInCourse {
   name?: string;
 }
 
+// ฟังก์ชันแปลงเวลา "HH:mm" ให้เป็นจำนวนนาที (เพื่อคำนวณเชิงตัวเลข)
+function timeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.trim().split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+// ตรวจสอบการทับซ้อนของเวลา (Time Overlap)
+function isTimeOverlapping(slot1: string, slot2: string): boolean {
+  if (!slot1 || !slot2) return false;
+  const [s1, e1] = slot1.split('-');
+  const [s2, e2] = slot2.split('-');
+  if (!s1 || !e1 || !s2 || !e2) return false;
+
+  const start1 = timeToMinutes(s1);
+  const end1 = timeToMinutes(e1);
+  const start2 = timeToMinutes(s2);
+  const end2 = timeToMinutes(e2);
+
+  // ทับซ้อนกันเมื่อ เวลาเริ่มของช่วงหลัง < เวลาจบของช่วงแรก
+  return Math.max(start1, start2) < Math.min(end1, end2);
+}
+
 // ฟังก์ชันปรับขนาดรูปถ่ายกลุ่มเป็น 1920px (Full HD) เพื่อคงรายละเอียดใบหน้าคนแถวหลัง
 async function resizeGroupImage(file: File, maxDimension: number = 1920): Promise<{ resizedBlob: Blob; imgElement: HTMLImageElement }> {
   return new Promise((resolve, reject) => {
@@ -161,7 +184,7 @@ export default function AttendancePage() {
   };
 
   const fetchInitialData = useCallback(async () => {
-    if (!selectedDate) return;
+    if (!selectedDate || !courseId) return;
     const token = getAuthToken();
 
     try {
@@ -234,10 +257,6 @@ export default function AttendancePage() {
           setStartTime(exStart);
           setEndTime(exEnd);
         }
-      } else {
-        if (slotMode === 'MORNING') { setStartTime('09:00'); setEndTime('12:00'); }
-        else if (slotMode === 'AFTERNOON') { setStartTime('13:00'); setEndTime('16:00'); }
-        else if (slotMode === 'SPECIAL') { setStartTime('17:00'); setEndTime('20:00'); }
       }
 
       setDailyRoundNumber(recordedRoundsCount + 1);
@@ -274,6 +293,7 @@ export default function AttendancePage() {
 
   const isRoundLimitReached = dailyRoundNumber > 3;
 
+  // ตรวจสอบการชนกันของเวลา (Time Overlap Calculation)
   const timeSlotConflict = useMemo(() => {
     const currentSlotStr = `${startTime}-${endTime}`;
     const oppositeType = sessionType === 'REGULAR' ? 'COMPENSATION' : 'REGULAR';
@@ -284,17 +304,29 @@ export default function AttendancePage() {
         ? session.sessionType === oppositeType
         : session.note?.includes(oppositeType === 'COMPENSATION' ? 'สอนชดเชย' : 'คาบปกติ');
 
-      const isSameTime = (session.timeSlot && session.timeSlot.includes(currentSlotStr)) ||
-        (session.note && session.note.includes(currentSlotStr));
+      let existingSlot = session.timeSlot || '';
+      if (!existingSlot && session.note) {
+        const match = session.note.match(/\[(\d{1,2}:\d{2}-\d{1,2}:\d{2})\]/);
+        if (match) existingSlot = match[1];
+      }
 
-      return isOpposite && isSameTime;
+      const isOverlapped = existingSlot ? isTimeOverlapping(currentSlotStr, existingSlot) : false;
+      const isSameString = existingSlot && (existingSlot.includes(currentSlotStr) || currentSlotStr.includes(existingSlot));
+
+      return isOpposite && (isOverlapped || isSameString);
     });
 
     if (conflictSession) {
+      let conflictedSlot = conflictSession.timeSlot || '';
+      if (!conflictedSlot && conflictSession.note) {
+        const match = conflictSession.note.match(/\[(\d{1,2}:\d{2}-\d{1,2}:\d{2})\]/);
+        if (match) conflictedSlot = match[1];
+      }
+
       return {
         hasConflict: true,
         conflictedTypeLabel: oppositeLabel,
-        timeSlot: currentSlotStr,
+        timeSlot: conflictedSlot || currentSlotStr,
       };
     }
 
@@ -316,7 +348,7 @@ export default function AttendancePage() {
     }
   };
 
-  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (Center-aligned เหนือกรอบ ไม่ทับเส้นและไม่บังใบหน้า)
+  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (ปรับสไตล์ให้ตรงกับหน้าประวัติ 100%)
   const drawBoxes = useCallback((image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
     const displayWidth = image.clientWidth || image.width;
     const displayHeight = image.clientHeight || image.height;
@@ -345,43 +377,43 @@ export default function AttendancePage() {
       const dh = box.height * scaleY;
 
       const themeColor = isMatched ? '#10b981' : '#ef4444';
+      const borderThickness = Math.max(2.5, Math.round(displayWidth / 450));
 
-      // 1. วาดเส้นกรอบสี่เหลี่ยมรอบใบหน้า
+      // 1. วาดกรอบสี่เหลี่ยม
       ctx.strokeStyle = themeColor;
-      ctx.lineWidth = Math.max(2, Math.round(dw * 0.04));
+      ctx.lineWidth = borderThickness;
       ctx.strokeRect(dx, dy, dw, dh);
 
-      // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ
-      const fontSize = Math.max(11, Math.min(13, Math.round(dw * 0.14)));
+      // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ Auto-width
+      const fontSize = Math.max(12, Math.round(displayWidth / 75));
       ctx.font = `bold ${fontSize}px sans-serif`;
 
       const textMetrics = ctx.measureText(name);
       const textWidth = textMetrics.width;
-      const padX = 6;
-      const padY = 3;
+      const padX = 10;
+      const padY = 5;
       const badgeH = fontSize + padY * 2;
       const badgeW = textWidth + padX * 2;
 
-      // จัดวางป้ายชื่อให้อยู่กึ่งกลางแนวนอนของกรอบใบหน้า
+      // กึ่งกลางแนวนอน ด้านบนเหนือกอบ
       const badgeX = dx + (dw - badgeW) / 2;
+      let badgeY = dy - badgeH - 6;
 
-      // ลอยอยู่เหนือกรอบ 4px (ถ้าติดขอบบนสุดของภาพให้สลับลงมาใต้กรอบแทน)
-      let badgeY = dy - badgeH - 4;
       if (badgeY < 2) {
-        badgeY = dy + dh + 4;
+        badgeY = dy + dh + 6;
       }
 
       // 3. วาดพื้นหลังป้ายชื่อ
       ctx.fillStyle = themeColor;
       if (ctx.roundRect) {
         ctx.beginPath();
-        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5);
         ctx.fill();
       } else {
         ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
       }
 
-      // 4. วาดข้อความชื่อสีขาวให้อยู่กึ่งกลางป้าย
+      // 4. วาดข้อความชื่อสีขาว
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -417,7 +449,7 @@ export default function AttendancePage() {
 
         const detections = await faceapi.detectAllFaces(
           imgElement,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.40, maxResults: 80 })
+          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55, maxResults: 80 })
         ).withFaceLandmarks();
 
         let currentBoxes: any[] = [];
@@ -461,7 +493,6 @@ export default function AttendancePage() {
       setDetectedStudents(Array.from(uniqueDetected));
       setStatus(`ตรวจเสร็จสิ้น: พบนักศึกษา ${uniqueDetected.size} คน จากทั้งหมด ${courseStudents.length} คนในคลาส`);
 
-      // หน่วงเวลาเพื่อให้ DOM พร้อมเรนเดอร์ Canvas
       setTimeout(() => {
         updatedResults.forEach((res, idx) => {
           const img = imageRefs.current[idx];
@@ -620,20 +651,20 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกไปหน้าประวัติ (Center-aligned เหนือกรอบ)
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database (ดึงจาก imageRefs โดยตรง เสถียรและเร็วที่สุด)
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
     return Promise.all(
-      scanResults.map((res) => {
+      scanResults.map((res, idx) => {
         return new Promise<string>((resolve) => {
-          const img = new window.Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
+          const existingImg = imageRefs.current[idx];
+
+          const processCanvas = (img: HTMLImageElement) => {
             const canvas = document.createElement('canvas');
-            let w = img.width;
-            let h = img.height;
-            const maxDim = 1600;
+            let w = img.naturalWidth || img.width;
+            let h = img.naturalHeight || img.height;
+            const maxDim = 1000;
 
             if (w > maxDim || h > maxDim) {
               if (w > h) {
@@ -649,14 +680,14 @@ export default function AttendancePage() {
             canvas.height = h;
             const ctx = canvas.getContext('2d');
             if (!ctx) {
-              resolve(img.src);
+              resolve('');
               return;
             }
 
             ctx.drawImage(img, 0, 0, w, h);
 
-            const scaleX = w / img.width;
-            const scaleY = h / img.height;
+            const scaleX = w / (img.naturalWidth || img.width);
+            const scaleY = h / (img.naturalHeight || img.height);
 
             if (Array.isArray(res.boxes) && res.boxes.length > 0) {
               res.boxes.forEach((box, bIdx) => {
@@ -671,29 +702,25 @@ export default function AttendancePage() {
                 const themeColor = isMatched ? '#10b981' : '#ef4444';
                 const borderThickness = Math.max(2.5, Math.round(w / 450));
 
-                // 1. วาดกรอบสี่เหลี่ยม
                 ctx.strokeStyle = themeColor;
                 ctx.lineWidth = borderThickness;
                 ctx.strokeRect(dx, dy, dw, dh);
 
-                // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ
                 const fontSize = Math.max(12, Math.round(w / 75));
                 ctx.font = `bold ${fontSize}px sans-serif`;
 
                 const textWidth = ctx.measureText(name).width;
-                const padX = 8;
-                const padY = 4;
+                const padX = 10;
+                const padY = 5;
                 const badgeH = fontSize + padY * 2;
                 const badgeW = textWidth + padX * 2;
 
-                // กึ่งกลางแนวนอนเหนือกรอบ
                 const badgeX = dx + (dw - badgeW) / 2;
-                let badgeY = dy - badgeH - 5;
+                let badgeY = dy - badgeH - 6;
                 if (badgeY < 2) {
-                  badgeY = dy + dh + 5;
+                  badgeY = dy + dh + 6;
                 }
 
-                // 3. วาดพื้นหลังป้ายชื่อ
                 ctx.fillStyle = themeColor;
                 if (ctx.roundRect) {
                   ctx.beginPath();
@@ -703,7 +730,6 @@ export default function AttendancePage() {
                   ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
                 }
 
-                // 4. วาดข้อความสีขาว
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
@@ -711,9 +737,17 @@ export default function AttendancePage() {
               });
             }
 
-            resolve(canvas.toDataURL('image/jpeg', 0.90));
+            resolve(canvas.toDataURL('image/jpeg', 0.70));
           };
-          img.src = res.url;
+
+          if (existingImg && existingImg.complete && existingImg.naturalWidth > 0) {
+            processCanvas(existingImg);
+          } else {
+            const fallbackImg = new Image();
+            fallbackImg.onload = () => processCanvas(fallbackImg);
+            fallbackImg.onerror = () => resolve('');
+            fallbackImg.src = res.url;
+          }
         });
       })
     );
@@ -786,7 +820,7 @@ export default function AttendancePage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
 
-      {/* Toast Alert Message ลอยตรงกลางด้านบน */}
+      {/* Toast Alert Message */}
       {toast.show && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border bg-white animate-in slide-in-from-top-4 fade-in duration-300 min-w-[320px] max-w-md border-slate-100">
           <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
@@ -916,7 +950,7 @@ export default function AttendancePage() {
             </div>
           )}
 
-          {/* ส่วนที่ 1: เลือกประเภทคาบเรียน */}
+          {/* ประเภทคาบเรียน */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-800 block">ประเภทคาบเรียน</span>
@@ -1013,7 +1047,7 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          {/* ส่วนที่ 2: วันที่ */}
+          {/* วันที่ */}
           <div className="pb-4 border-b border-slate-100">
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               เลือกวันที่
@@ -1026,7 +1060,7 @@ export default function AttendancePage() {
             />
           </div>
 
-          {/* ส่วนที่ 3: สถานะรอบการเช็คชื่อ */}
+          {/* สถานะรอบการเช็คชื่อ */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 rounded-xl border bg-slate-50 border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-700 block">
@@ -1048,7 +1082,7 @@ export default function AttendancePage() {
             </span>
           </div>
 
-          {/* ส่วนที่ 4: อัปโหลดรูปภาพ */}
+          {/* อัปโหลดรูปภาพ */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-700">อัปโหลดรูปภาพกลุ่มนักศึกษาเพื่อทำการเช็คชื่อ:</label>
             <input
