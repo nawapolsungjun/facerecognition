@@ -304,61 +304,6 @@ export default function AdminSingleCourseReportPage() {
     }
   };
 
-  const handleTimeChange = async (studentId: number, currentStatus: string, newTimeStr: string, currentRemark: string) => {
-    const token = getAuthToken();
-    const now = new Date();
-    const dateFormatted = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-    const timeFormatted = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-
-    const cleanRemark = cleanRemarkString(currentRemark || '');
-    const timeStamp = `(แก้ไขโดยผู้ดูแลระบบเมื่อ ${dateFormatted} เวลา ${timeFormatted} น.)`;
-    const finalRemark = cleanRemark ? `${cleanRemark} ${timeStamp}` : `แก้ไขเวลา ${timeStamp}`;
-
-    try {
-      const res = await fetch(`/api/attendance/direct`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          studentId,
-          courseId,
-          status: currentStatus,
-          date: selectedDate,
-          time: newTimeStr,
-          remark: finalRemark
-        })
-      });
-
-      if (res.ok) {
-        fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType);
-        fetchWeeksSummary();
-        fetchCourseDetailsAndHistory();
-        setAlertModal({
-          show: true,
-          title: 'แก้ไขเวลาเรียบร้อย',
-          message: 'อัปเดตเวลาการเช็คชื่อเรียบร้อยแล้ว',
-          isSuccess: true,
-        });
-      } else {
-        setAlertModal({
-          show: true,
-          title: 'เกิดข้อผิดพลาด',
-          message: 'ไม่สามารถอัปเดตเวลาได้',
-          isSuccess: false,
-        });
-      }
-    } catch {
-      setAlertModal({
-        show: true,
-        title: 'เกิดข้อผิดพลาด',
-        message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
-        isSuccess: false,
-      });
-    }
-  };
-
   const handleSaveWeekNote = async () => {
     if (!editingWeekRemark) return;
     setIsSavingNote(true);
@@ -689,7 +634,7 @@ export default function AdminSingleCourseReportPage() {
         </nav>
 
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-          {/* ปุ่มย้อนกลับ ตรงแนวขอบซ้ายของการ์ดพอดี */}
+          {/* ปุ่มย้อนกลับ */}
           <div className="mb-3">
             <button
               type="button"
@@ -704,7 +649,6 @@ export default function AdminSingleCourseReportPage() {
           {reportMode === 'daily' && (
             <div className="animate-in fade-in duration-300 space-y-4">
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80">
-                {/* ปุ่มสลับโหมดอยู่ใน Card นี้ */}
                 <div className="flex justify-between items-center pb-4 mb-5 border-b border-slate-100 flex-wrap gap-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-800">รายงานการเข้าเรียนรายวัน</h3>
@@ -760,7 +704,7 @@ export default function AdminSingleCourseReportPage() {
                     <input
                       type="text"
                       readOnly
-                      value={courseInfo ? `${courseInfo.courseCode} ${courseInfo.courseName} (กลุ่ม ${courseInfo.section || '-'} | เทอม ${courseInfo.semester || '-'}/${courseInfo.academicYear || '-'})` : 'กำลังโหลด...'}
+                      value={courseInfo ? `${courseInfo.courseCode || ''} ${courseInfo.courseName || ''} (กลุ่ม ${courseInfo.section || '-'} | ภาคเรียนที่ ${courseInfo.semester || '-'}/${courseInfo.academicYear || '-'})` : 'กำลังโหลด...'}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold outline-none text-slate-600"
                     />
                   </div>
@@ -798,7 +742,7 @@ export default function AdminSingleCourseReportPage() {
                 </div>
               </div>
 
-              {/* ตารางรายชื่อประจำวัน */}
+              {/* ตารางรายชื่อประจำวัน (หัวข้อฟิลด์ใหญ่ หนา และ Center) */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 flex gap-2 overflow-x-auto">
                   {['ทั้งหมด', 'มาเรียน', 'มาสาย', 'ลา', 'รอตรวจสอบ', 'ขาดเรียน'].map((f) => (
@@ -806,8 +750,8 @@ export default function AdminSingleCourseReportPage() {
                       key={f}
                       onClick={() => setFilter(f)}
                       className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filter === f
-                          ? 'bg-emerald-700 text-white shadow-xs'
-                          : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200/60'
+                        ? 'bg-emerald-700 text-white shadow-xs'
+                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100 border border-slate-200/60'
                         }`}
                     >
                       {f}
@@ -816,28 +760,31 @@ export default function AdminSingleCourseReportPage() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse min-w-[850px]">
                     <thead>
-                      <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                        <th className="p-4 text-xs font-bold text-slate-600 w-14 text-center">ลำดับ</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 w-36">เวลาเช็คชื่อ</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 w-36">รหัสประจำตัว</th>
-                        <th className="p-4 text-xs font-bold text-slate-600">ชื่อ - นามสกุล</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">สถานะ</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-left">หมายเหตุ</th>
+                      <tr className="bg-slate-50/90 border-b border-slate-200/80">
+                        <th className="p-4 text-sm font-black text-slate-700 w-[6%] text-center whitespace-nowrap">ลำดับ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[11%] text-center whitespace-nowrap">เวลาเช็คชื่อ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[15%] text-center whitespace-nowrap">รหัสประจำตัว</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[14%] text-center whitespace-nowrap">ชื่อ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[14%] text-center whitespace-nowrap">นามสกุล</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[10%] text-center whitespace-nowrap">สถานะ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[22%] text-center whitespace-nowrap">หมายเหตุ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[8%] text-center whitespace-nowrap">จัดการ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {loading ? (
                         <tr>
-                          <td colSpan={6} className="p-14 text-center font-bold text-slate-400 animate-pulse">
+                          <td colSpan={8} className="p-14 text-center font-bold text-slate-400 animate-pulse">
                             กำลังโหลดข้อมูลประจำวัน...
                           </td>
                         </tr>
                       ) : filteredDailyData.length > 0 ? (
                         filteredDailyData.map((item: any, index: number) => {
                           const timeString = formatTimeString(item.time || item.updatedAt || item.createdAt);
-                          const displayName = `${item.firstName || ''} ${item.lastName || ''}`.trim() || item.name || 'ไม่ระบุชื่อ';
+                          const firstName = item.firstName || item.name || '-';
+                          const lastName = item.lastName || '-';
                           const displayRemark = formatDisplayRemark(item.remark);
 
                           const getStatusBadge = (status: string) => {
@@ -859,67 +806,56 @@ export default function AdminSingleCourseReportPage() {
 
                           return (
                             <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                              <td className="p-4 text-xs font-bold text-slate-400 text-center">{index + 1}</td>
-                              <td className="p-4 text-xs font-medium text-slate-600">
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    type="time"
-                                    value={timeString}
-                                    onChange={(e) => handleTimeChange(item.id, item.status, e.target.value, item.remark)}
-                                    className="bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                                  />
-                                  <span className="text-[11px] text-slate-400">น.</span>
-                                </div>
+                              <td className="p-4 text-xs text-center font-bold text-slate-400">{index + 1}</td>
+                              <td className="p-4 text-xs text-center font-semibold text-slate-600 font-mono whitespace-nowrap">
+                                {timeString ? `${timeString} น.` : '-'}
                               </td>
-                              <td className="p-4 text-xs font-bold font-mono text-emerald-700">{item.studentCode}</td>
-                              <td className="p-4">
-                                <div className="text-xs font-bold text-slate-800">{displayName}</div>
-                              </td>
+                              <td className="p-4 text-xs text-center font-bold font-mono text-emerald-700 whitespace-nowrap">{item.studentCode || '-'}</td>
+                              <td className="p-4 text-xs text-center font-bold text-slate-800 truncate" title={firstName}>{firstName}</td>
+                              <td className="p-4 text-xs text-center font-bold text-slate-800 truncate" title={lastName}>{lastName}</td>
                               <td className="p-4 text-center">
-                                <span className={`inline-flex items-center justify-center px-3 py-1 rounded-xl text-xs font-bold border ${getStatusBadge(item.status)}`}>
+                                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-xl text-xs font-bold border ${getStatusBadge(item.status)}`}>
                                   {item.status || '-'}
                                 </span>
                               </td>
-                              <td className="p-4">
-                                <div className="flex items-center justify-between gap-3 w-full">
-                                  <div className="flex-1">
-                                    {displayRemark ? (
-                                      <span className="text-xs font-bold text-slate-700 break-words leading-relaxed">
-                                        {displayRemark}
-                                      </span>
-                                    ) : (
-                                      <span className="text-xs text-slate-300 italic">
-                                        - ไม่มีหมายเหตุ -
-                                      </span>
-                                    )}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenStatusModal(item, timeString)}
-                                    className="p-2 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 active:scale-95 rounded-xl border border-transparent hover:border-emerald-200 transition-all cursor-pointer shrink-0"
-                                    title="แก้ไขสถานะ / หมายเหตุ"
+                              <td className="p-4 text-left">
+                                {displayRemark ? (
+                                  <span className="text-xs font-bold text-slate-700 break-words leading-relaxed block">
+                                    {displayRemark}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-300 italic">
+                                    - ไม่มีหมายเหตุ -
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-4 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStatusModal(item, timeString)}
+                                  className="p-2 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 active:scale-95 rounded-xl border border-transparent hover:border-emerald-200 transition-all cursor-pointer"
+                                  title="แก้ไขสถานะ / หมายเหตุ"
+                                >
+                                  <svg
+                                    className="w-4 h-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
                                   >
-                                    <svg
-                                      className="w-4 h-4"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                    </svg>
-                                  </button>
-                                </div>
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
+                                </button>
                               </td>
                             </tr>
                           );
                         })
                       ) : (
                         <tr>
-                          <td colSpan={6} className="p-16 text-center text-slate-400 font-bold text-xs">
+                          <td colSpan={8} className="p-16 text-center text-slate-400 font-bold text-xs">
                             ไม่พบข้อมูลการเช็คชื่อสำหรับวันที่เลือก
                           </td>
                         </tr>
@@ -931,14 +867,13 @@ export default function AdminSingleCourseReportPage() {
             </div>
           )}
 
-          {/* 2. โหมดสรุปภาพรวม 15 สัปดาห์ */}
+          {/* 2. โหมดสรุปภาพรวม 15 สัปดาห์ (หัวข้อฟิลด์ใหญ่หนา และป้องกันคาบเช้าตกบรรทัด) */}
           {reportMode !== 'daily' && (
             <div className="animate-in fade-in duration-300 space-y-4">
-              {/* การ์ดหัวข้อพร้อมปุ่มสลับโหมด */}
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 flex justify-between items-center flex-wrap gap-4">
                 <div>
                   <h3 className="text-lg font-black text-slate-800">ตารางสรุปสถิติภาพรวมทุกสัปดาห์</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">รวมสถิติการเช็คชื่อทั้ง 15 สัปดาห์ตลอดภาคการศึกษา (รวมคาบสอนชดเชย)</p>
+                  <p className="text-xs text-slate-400 mt-0.5">รวมสถิติการเช็คชื่อทั้ง 15 สัปดาห์ตลอดภาคการเรียน (รวมคาบสอนชดเชย)</p>
                 </div>
                 <div className="inline-flex bg-slate-100 p-1 rounded-xl shadow-inner border border-slate-200/60">
                   <button
@@ -960,15 +895,15 @@ export default function AdminSingleCourseReportPage() {
 
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
                     <thead>
-                      <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                        <th className="p-4 text-xs font-bold text-slate-600 w-16 text-center">สัปดาห์ที่</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 w-44">วันที่และช่วงเวลา</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-20">นศ.</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-[350px]">สรุปการเข้าเรียน (คน)</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">อัตราเข้าเรียน (%)</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-left">หมายเหตุ / คาบชดเชย</th>
+                      <tr className="bg-slate-50/90 border-b border-slate-200/80">
+                        <th className="p-4 text-sm font-black text-slate-700 w-20 text-center whitespace-nowrap">สัปดาห์ที่</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-48 text-center whitespace-nowrap">วันที่และช่วงเวลา</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center w-28 whitespace-nowrap">จำนวนนักศึกษา</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center w-[350px]">สรุปการเข้าเรียน</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center w-28 whitespace-nowrap">อัตราเข้าเรียน</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center min-w-[200px] whitespace-nowrap">หมายเหตุ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -980,47 +915,53 @@ export default function AdminSingleCourseReportPage() {
                         </tr>
                       ) : (
                         weeksList.map((week) => {
-                          const presentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาเรียน').length;
-                          const lateCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาสาย').length;
-                          const pendingCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'รอตรวจสอบ').length;
-                          const leaveCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ลา').length;
-                          const absentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ขาดเรียน').length;
+                          const hasApiData = week.isChecked && (week.present + week.late + week.leave + week.pending + week.absent > 0);
+
+                          const fallbackPresent = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาเรียน').length;
+                          const fallbackLate = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาสาย').length;
+                          const fallbackPending = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'รอตรวจสอบ').length;
+                          const fallbackLeave = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ลา').length;
+                          const fallbackAbsent = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ขาดเรียน').length;
+
+                          const presentCount = hasApiData ? week.present : fallbackPresent;
+                          const lateCount = hasApiData ? week.late : fallbackLate;
+                          const pendingCount = hasApiData ? week.pending : fallbackPending;
+                          const leaveCount = hasApiData ? week.leave : fallbackLeave;
+                          const absentCount = hasApiData ? week.absent : fallbackAbsent;
 
                           const sumRecorded = presentCount + lateCount + pendingCount + leaveCount + absentCount;
-                          const isRecorded = sumRecorded > 0;
+                          const isRecorded = week.isChecked || sumRecorded > 0;
 
                           const percent = isRecorded && totalStudentsCount > 0
-                            ? Math.round(((presentCount + lateCount) / totalStudentsCount) * 100)
+                            ? (week.percentage > 0 ? week.percentage : Math.round(((presentCount + lateCount) / totalStudentsCount) * 100))
                             : 0;
 
                           return (
                             <tr
                               key={week.weekNumber}
-                              className={`transition-colors ${isRecorded ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'
-                                }`}
+                              className={`transition-colors ${isRecorded ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'}`}
                             >
                               <td
                                 className="p-4 text-center cursor-pointer"
                                 onClick={() => handleSelectWeek(week)}
                                 title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
                               >
-                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${isRecorded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'
-                                  }`}>
+                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${isRecorded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'}`}>
                                   {week.weekNumber}
                                 </span>
                               </td>
                               <td
-                                className="p-4 text-xs font-bold text-slate-700 cursor-pointer"
+                                className="p-4 text-xs font-bold text-slate-700 cursor-pointer whitespace-nowrap"
                                 onClick={() => handleSelectWeek(week)}
                                 title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
                               >
                                 {week.dateStr !== 'ยังไม่บันทึก' ? (
                                   <div>
-                                    <span className="text-emerald-800 font-bold block">
-                                      {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-[10px] ml-1">(ชดเชย)</span>}
+                                    <span className="text-emerald-800 text-center font-bold block whitespace-nowrap">
+                                      {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-xs ml-1">(ชดเชย)</span>}
                                     </span>
                                     {week.timeStr && (
-                                      <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
+                                      <span className="text-xs text-slate-500 text-center font-medium block mt-0.5 whitespace-nowrap">
                                         {getTimeSlotLabel(week.timeStr)}
                                       </span>
                                     )}
@@ -1130,7 +1071,7 @@ export default function AdminSingleCourseReportPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h2m2 4h6a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2zm8-12V5a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v4h10z" />
               </svg>
-              พิมพ์แบบฟอร์ม มทร.กรุงเทพ (PDF)
+              พิมพ์แบบฟอร์ม
             </button>
           </div>
         </main>
@@ -1146,7 +1087,7 @@ export default function AdminSingleCourseReportPage() {
         {editingStudent && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 animate-in zoom-in-95 duration-200">
-              <h3 className="text-lg font-black text-slate-800 mb-1">แก้ไขสถานะการเข้าเรียน (โหมดผู้ดูแลระบบ)</h3>
+              <h3 className="text-lg font-black text-slate-800 mb-1">แก้ไขสถานะการเข้าเรียน</h3>
               <p className="text-xs text-slate-400 mb-4">
                 นักศึกษา: <span className="font-bold text-slate-700">{editingStudent.name}</span> ({editingStudent.studentCode})
               </p>

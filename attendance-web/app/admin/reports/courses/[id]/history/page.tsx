@@ -148,10 +148,10 @@ export default function AdminCourseHistoryPage() {
               </h2>
               <div className="flex flex-wrap items-center gap-3 mt-3 text-xs font-bold text-slate-600">
                 <span className="bg-slate-100 px-3 py-1 rounded-md">กลุ่มเรียน: {courseInfo?.section || '-'}</span>
-                <span className="bg-slate-100 px-3 py-1 rounded-md">เทอม: {courseInfo?.semester || '-'}/{courseInfo?.academicYear || '-'}</span>
+                <span className="bg-slate-100 px-3 py-1 rounded-md">ภาคเรียนที่: {courseInfo?.semester || '-'}/{courseInfo?.academicYear || '-'}</span>
                 {courseInfo?.joinCode && (
                   <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-md flex items-center gap-1.5 uppercase tracking-wider shadow-sm">
-                    <span>Join Code:</span> 
+                    <span>รหัสเข้าร่วมชั้นเรียน:</span> 
                     <span className="select-all">{courseInfo.joinCode}</span>
                   </span>
                 )}

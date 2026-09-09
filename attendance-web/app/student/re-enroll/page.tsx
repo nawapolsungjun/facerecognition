@@ -1,5 +1,4 @@
 // attendance-web/app/student/re-enroll/page.tsx
-// attendance-web/app/student/re-enroll/page.tsx
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -7,7 +6,7 @@ import Webcam from 'react-webcam';
 import Link from 'next/link';
 import * as faceapi from 'face-api.js';
 
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
 
 // กำหนดความละเอียดกล้องให้เป็น Full HD / HD เพื่อความคมชัดสูงสุดของใบหน้า
 const VIDEO_CONSTRAINTS = {
@@ -52,43 +51,79 @@ function averageVectors(vectors: number[][]): number[] {
   return avg;
 }
 
-// ฟังก์ชันครอบตัดเฉพาะใบหน้าจากรูปภาพต้นฉบับ พร้อม Padding 18%
-async function cropFaceFromFile(file: File): Promise<File> {
-  const img = await faceapi.bufferToImage(file);
-  
-  const detection = await faceapi.detectSingleFace(
-    img,
-    new faceapi.SsdMobilenetv1Options({ minConfidence: 0.40 })
-  );
-  
-  if (!detection) {
-    throw new Error(`ระบบไม่พบใบหน้าในรูปภาพ ${file.name} กรุณาเปลี่ยนรูปใหม่`);
+// ฟังก์ชันตรวจจับและครอบตัดใบหน้าทุกใบที่พบในภาพเดียว (รองรับภาพรวมหลายช่อง/กริด)
+async function cropAllFacesFromFile(file: File): Promise<File[]> {
+  try {
+    const img = await faceapi.bufferToImage(file);
+    
+    // 1. ปรับขนาดภาพต้นฉบับไม่ให้ใหญ่เกินไป (Max 1600px) เพื่อความเสถียรและแม่นยำของ AI
+    const maxDim = 1600;
+    let w = img.width;
+    let h = img.height;
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
+      } else {
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
+      }
+    }
+
+    const resizeCanvas = document.createElement('canvas');
+    resizeCanvas.width = w;
+    resizeCanvas.height = h;
+    const resizeCtx = resizeCanvas.getContext('2d');
+    if (!resizeCtx) return [];
+    resizeCtx.drawImage(img, 0, 0, w, h);
+
+    // 2. ค้นหาใบหน้าทั้งหมดที่มีอยู่ในภาพ (รองรับภาพถ่ายรวมหลายช่องมุมมอง)
+    const detections = await faceapi.detectAllFaces(
+      resizeCanvas,
+      new faceapi.SsdMobilenetv1Options({ minConfidence: 0.35 })
+    );
+
+    if (!detections || detections.length === 0) {
+      return [];
+    }
+
+    const croppedFiles: File[] = [];
+
+    // 3. วนลูปครอบตัดใบหน้าทุกหน้าที่ตรวจพบ
+    for (let i = 0; i < detections.length; i++) {
+      const { x, y, width, height } = detections[i].box;
+      
+      const padX = Math.round(width * 0.25);
+      const padY = Math.round(height * 0.25);
+
+      const cropX = Math.max(0, x - padX);
+      const cropY = Math.max(0, y - padY);
+      const cropW = Math.min(w - cropX, width + padX * 2);
+      const cropH = Math.min(h - cropY, height + padY * 2);
+      
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = cropW;
+      finalCanvas.height = cropH;
+      const finalCtx = finalCanvas.getContext('2d');
+      
+      if (finalCtx) {
+        finalCtx.drawImage(resizeCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        
+        const blob = await new Promise<Blob | null>((resolve) => {
+          finalCanvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92);
+        });
+
+        if (blob) {
+          croppedFiles.push(new File([blob], `grid_face_${i}_${file.name}`, { type: 'image/jpeg' }));
+        }
+      }
+    }
+
+    return croppedFiles;
+  } catch (err) {
+    console.error('Crop all faces error:', err);
+    return [];
   }
-
-  const { x, y, width, height } = detection.box;
-  const padX = Math.round(width * 0.18);
-  const padY = Math.round(height * 0.18);
-
-  const cropX = Math.max(0, x - padX);
-  const cropY = Math.max(0, y - padY);
-  const cropW = Math.min(img.width - cropX, width + padX * 2);
-  const cropH = Math.min(img.height - cropY, height + padY * 2);
-  
-  const canvas = document.createElement('canvas');
-  canvas.width = cropW;
-  canvas.height = cropH;
-  const ctx = canvas.getContext('2d');
-  
-  if (!ctx) throw new Error('เกิดข้อผิดพลาดในการประมวลผลรูปภาพ');
-
-  ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) return reject(new Error('แปลงไฟล์ไม่สำเร็จ'));
-      resolve(new File([blob], `cropped_${file.name}`, { type: 'image/jpeg' }));
-    }, 'image/jpeg', 0.90);
-  });
 }
 
 export default function ReEnrollPage() {
@@ -222,7 +257,7 @@ export default function ReEnrollPage() {
     }
   };
 
-  // ฟังก์ชันบันทึกข้อมูลใบหน้าลงฐานข้อมูล
+  // ฟังก์ชันบันทึกข้อมูลใบหน้าลงฐานข้อมูล (รองรับการตัดแบ่งหน้าทั้งหมดจากกริดอัตโนมัติ)
   const handleFinalSave = async (vectorsToSave: any[]) => {
     setShowConfirmModal(false);
     setIsLoading(true);
@@ -239,22 +274,27 @@ export default function ReEnrollPage() {
 
       let allFinalVectors = [...vectorsToSave];
 
-      // ครอบตัดใบหน้าและส่ง API
+      // ครอบตัดใบหน้าทั้งหมดจากไฟล์ที่อัปโหลด (รองรับภาพรวมหลายมุมมอง)
       if (files && files.length > 0) {
-        setStatus('กำลังวิเคราะห์และครอบตัดเฉพาะใบหน้าจากรูปภาพ...');
+        setStatus('กำลังคัดกรองและแยกตัดใบหน้าทั้งหมดออกจากรูปภาพ...');
         const faceFormData = new FormData();
 
         const fileArray = Array.from(files);
+        let totalValidFaces = 0;
+
         for (let i = 0; i < fileArray.length; i++) {
-          try {
-            const croppedFile = await cropFaceFromFile(fileArray[i]);
+          const croppedFacesList = await cropAllFacesFromFile(fileArray[i]);
+          for (const croppedFile of croppedFacesList) {
             faceFormData.append('files', croppedFile);
-          } catch (err: any) {
-            throw new Error(`รูปที่ ${i + 1}: ${err.message}`);
+            totalValidFaces++;
           }
         }
 
-        setStatus('กำลังส่งข้อมูลใบหน้าไปประมวลผลบนเซิร์ฟเวอร์ AI...');
+        if (totalValidFaces === 0) {
+          throw new Error('ไม่พบใบหน้าที่ชัดเจนในรูปภาพที่เลือกเลย กรุณาถ่ายภาพใหม่ที่มีแสงสว่างเพียงพอและเห็นใบหน้าชัดเจน');
+        }
+
+        setStatus(`ตรวจพบใบหน้าทั้งหมด ${totalValidFaces} มุมมอง กำลังประมวลผล...`);
         const aiResponse = await fetch(`${AI_BASE_URL}/api/register-face-multi`, {
           method: 'POST',
           body: faceFormData
@@ -271,7 +311,7 @@ export default function ReEnrollPage() {
       }
 
       if (allFinalVectors.length < 3) {
-        throw new Error('กรุณาอัปโหลดรูปหรือสแกนหน้า รวมกันอย่างน้อย 3 มุมมองขึ้นไป');
+        throw new Error(`ระบบตรวจพบใบหน้าที่สมบูรณ์เพียง ${allFinalVectors.length} รูป (ต้องการอย่างน้อย 3 รูป) กรุณาเพิ่มรูปภาพที่ชัดเจนเพิ่มเติม`);
       }
 
       setStatus('กำลังอัปเดตข้อมูลใบหน้าลงฐานข้อมูล...');
@@ -294,8 +334,8 @@ export default function ReEnrollPage() {
 
       const dbResult = await dbResponse.json();
       if (dbResult.success) {
-        setStatus('อัปเดตใบหน้าสำเร็จเรียบร้อย');
-        showToast('success', 'อัปเดตข้อมูลสำเร็จ', 'อัปเดตข้อมูลโครงสร้างใบหน้าใหม่เรียบร้อย ระบบจะพาคุณไปที่ Dashboard', () => {
+        setStatus(`อัปเดตใบหน้าสำเร็จเรียบร้อย (บันทึกสำเร็จ ${allFinalVectors.length} รูป)`);
+        showToast('success', 'อัปเดตข้อมูลสำเร็จ', `อัปเดตโครงสร้างใบหน้าใหม่สมบูรณ์ ${allFinalVectors.length} มุมมอง ระบบจะพาคุณไปที่ Dashboard`, () => {
           router.replace('/student/dashboard');
         });
       } else {
@@ -311,13 +351,13 @@ export default function ReEnrollPage() {
     }
   };
 
-  // ดำเนินการจับภาพ Multi-Frame Capture (5 เฟรมต่อเนื่อง เว้นช่วงละ 200ms) + Vector Averaging
+  // ดำเนินการจับภาพ Multi-Frame Capture + Vector Averaging
   const executeStepCapture = useCallback(async (currentStepIdx: number) => {
     if (!webcamRef.current || isCapturingRef.current) return;
     isCapturingRef.current = true;
 
     const totalFramesToCapture = 5;
-    const delayBetweenFramesMs = 200;
+    const delayBetweenFramesMs = 120;
     const collectedVectors: number[][] = [];
     let representativeThumb = '';
 
@@ -344,7 +384,6 @@ export default function ReEnrollPage() {
           }
         }
 
-        // หน่วงเวลา 200ms ก่อนจับเฟรมถัดไป
         if (frameIdx < totalFramesToCapture - 1) {
           await new Promise((resolve) => setTimeout(resolve, delayBetweenFramesMs));
         }
@@ -358,7 +397,6 @@ export default function ReEnrollPage() {
         return;
       }
 
-      // นำเวกเตอร์ทั้ง 5 เฟรมมาหาค่าเฉลี่ย (Vector Averaging)
       const finalAveragedVector = averageVectors(collectedVectors);
 
       setCapturedVectors((prev) => {
@@ -377,7 +415,7 @@ export default function ReEnrollPage() {
           setStatus(`บันทึกมุมที่ ${currentStepIdx + 1} เรียบร้อย กรุณาทำท่า: ${SCAN_STEPS[nextStep].label}`);
           setTimeout(() => {
             isCapturingRef.current = false;
-          }, 800);
+          }, 600);
         } else {
           setIsScanningActive(false);
           setStatus('สแกนครบทุกมุมแล้ว กำลังบันทึกข้อมูลอัตโนมัติ...');
@@ -392,7 +430,7 @@ export default function ReEnrollPage() {
     }
   }, [capturedThumbs]);
 
-  // ระบบประมวลผล Pose Detection แบบเรียลไทม์ (minConfidence: 0.40)
+  // ระบบประมวลผล Pose Detection แบบเรียลไทม์
   useEffect(() => {
     if (!isScanningActive || !isModelsLoaded || regMode !== 'scan') return;
 
@@ -450,7 +488,6 @@ export default function ReEnrollPage() {
           setIsPoseMatched(true);
           poseHoldCounterRef.current += 1;
 
-          // เมื่อทรงตัวอยู่ในมุมเดิม 2 รอบติดต่อกัน ให้เริ่มสกัด Multi-Frame
           if (poseHoldCounterRef.current >= 2) {
             executeStepCapture(scanStepIndex);
           }
@@ -493,8 +530,8 @@ export default function ReEnrollPage() {
   };
 
   const handleOpenConfirm = () => {
-    if (regMode === 'upload' && (!files || files.length < 3)) {
-      showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณาเลือกรูปภาพอย่างน้อย 3 รูปขึ้นไป');
+    if (regMode === 'upload' && (!files || files.length === 0)) {
+      showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณาเลือกรูปภาพอย่างน้อย 1 รูปขึ้นไป');
       return;
     }
     setShowConfirmModal(true);
@@ -582,7 +619,7 @@ export default function ReEnrollPage() {
                 regMode === 'upload' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Upload Files (อัปโหลดรูปภาพ)
+              อัปโหลดรูปภาพ
             </button>
             <button
               type="button"
@@ -594,7 +631,7 @@ export default function ReEnrollPage() {
                 regMode === 'scan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Face Scan (ตรวจจับท่าทางอัตโนมัติ)
+              เปิดกล้อง
             </button>
           </div>
 
@@ -606,11 +643,11 @@ export default function ReEnrollPage() {
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
                 <h4 className="text-sm md:text-base font-black text-emerald-950">
-                  คำแนะนำ: กรุณาเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป (แนะนำให้ครอบคลุมมุมต่างๆ)
+                  คำแนะนำ: อัปโหลดภาพถ่ายรวมมุมมอง หรือเลือกอัปโหลดอย่างน้อย 3 รูปขึ้นไป
                 </h4>
               </div>
               <p className="text-xs md:text-sm text-emerald-900 mb-5 leading-relaxed font-semibold">
-                เพื่อให้ระบบ AI ตรวจจับและรู้จำใบหน้าได้อย่างแม่นยำที่สุด ควรถ่ายในที่มีแสงสว่างชัดเจน ไม่สวมแว่นตาดำหรือแมสก์ ตามตัวอย่างมุมด้านล่างนี้:
+                คุณสามารถอัปโหลดภาพถ่ายรวมมุมมอง (เช่น ภาพตาราง 6 มุมมอง) ระบบจะทำการตัดแบ่งและดึงทุกใบหน้าออกมาประมวลผลให้อัตโนมัติ:
               </p>
 
               {/* การ์ดแสดง 5 ท่าทางแนะนำ */}
@@ -660,7 +697,7 @@ export default function ReEnrollPage() {
             <button
               type="button"
               onClick={handleOpenConfirm}
-              disabled={isLoading || (!files || files.length < 3)}
+              disabled={isLoading || (!files || files.length === 0)}
               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-xl font-bold text-sm shadow-sm active:scale-[0.99] disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer transition-all mt-4"
             >
               {isLoading ? 'กำลังประมวลผล...' : 'ยืนยันการอัปเดตใบหน้า'}

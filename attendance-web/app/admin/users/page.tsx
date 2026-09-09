@@ -637,21 +637,21 @@ function AdminUsersContent() {
           </div>
         </div>
 
-        {/* ตารางรายชื่อทั้งหมด */}
+        {/* ตารางรายชื่อทั้งหมด (ปรับฟอนต์หัวข้อให้อยู่ตรงกลางและเด่นชัดขึ้น) */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse table-fixed sm:table-auto">
               <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                  <th className="py-4 px-3 text-xs font-bold text-slate-600 w-16 text-center">ลำดับ</th>
+                <tr className="bg-slate-50/90 border-b border-slate-200/80">
+                  <th className="py-4 px-3 text-sm font-black text-slate-700 w-16 text-center whitespace-nowrap">ลำดับ</th>
 
                   {activeTab === 'STUDENT' && (
                     <th
-                      className="py-4 px-4 text-xs font-bold text-slate-600 w-48 text-left cursor-pointer select-none hover:bg-slate-100/80 transition-colors"
+                      className="py-4 px-4 text-sm font-black text-slate-700 w-48 text-center cursor-pointer select-none hover:bg-slate-100/80 transition-colors whitespace-nowrap"
                       onClick={toggleSortOrder}
                       title="คลิกเพื่อสลับการเรียงลำดับจากน้อยไปมาก / มากไปน้อย"
                     >
-                      <div className="inline-flex items-center gap-1.5 group">
+                      <div className="inline-flex items-center justify-center gap-1.5 w-full group">
                         <span>รหัสนักศึกษา</span>
                         <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-slate-200/60 text-slate-600 group-hover:bg-emerald-100 group-hover:text-emerald-700 transition-colors text-[10px] font-black">
                           {sortOrder === 'asc' ? '▲' : '▼'}
@@ -660,10 +660,10 @@ function AdminUsersContent() {
                     </th>
                   )}
 
-                  <th className="py-4 px-4 text-xs font-bold text-slate-600 text-left w-36 sm:w-44">ชื่อ</th>
-                  <th className="py-4 px-4 text-xs font-bold text-slate-600 text-left w-36 sm:w-44">นามสกุล</th>
-                  <th className="py-4 px-4 text-xs font-bold text-slate-600 text-left">อีเมล</th>
-                  <th className="py-4 px-3 text-xs font-bold text-slate-600 text-center w-40">จัดการ</th>
+                  <th className="py-4 px-4 text-sm font-black text-slate-700 text-center w-36 sm:w-44 whitespace-nowrap">ชื่อ</th>
+                  <th className="py-4 px-4 text-sm font-black text-slate-700 text-center w-36 sm:w-44 whitespace-nowrap">นามสกุล</th>
+                  <th className="py-4 px-4 text-sm font-black text-slate-700 text-center w-36 sm:w-44 whitespace-nowrap">อีเมล</th>
+                  <th className="py-4 px-3 text-sm font-black text-slate-700 text-center w-40 whitespace-nowrap">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -682,26 +682,26 @@ function AdminUsersContent() {
 
                     return (
                       <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-4 px-3 text-xs font-bold text-slate-400 text-center">
+                        <td className="py-4 px-3 text-xs font-bold text-slate-400 text-center align-middle">
                           {globalIndex}
                         </td>
 
                         {activeTab === 'STUDENT' && (
-                          <td className="py-4 px-4 text-xs font-bold font-mono text-left">
+                          <td className="py-4 px-4 text-xs font-bold font-mono text-center align-middle whitespace-nowrap">
                             <span className="text-emerald-700">{studentCode || '-'}</span>
                           </td>
                         )}
 
-                        <td className="py-4 px-4 text-xs font-bold text-slate-800 text-left truncate">
+                        <td className="py-4 px-4 text-xs font-bold text-slate-800 text-center align-middle truncate">
                           {firstName}
                         </td>
-                        <td className="py-4 px-4 text-xs font-bold text-slate-800 text-left truncate">
+                        <td className="py-4 px-4 text-xs font-bold text-slate-800 text-center align-middle truncate">
                           {lastName}
                         </td>
-                        <td className="py-4 px-4 text-xs font-medium text-slate-500 font-mono text-left truncate">
+                        <td className="py-4 px-4 text-xs font-medium text-slate-500 font-mono text-center align-middle truncate">
                           {user.email || '-'}
                         </td>
-                        <td className="py-4 px-3 text-center">
+                        <td className="py-4 px-3 text-center align-middle">
                           <div className="inline-flex items-center justify-center gap-1.5">
                             {/* 1. ปุ่มแก้ไข สีเหลือง */}
                             <button

@@ -255,8 +255,8 @@ export default function AdminCourseManagementPage() {
             type="button"
             onClick={() => setStatusFilter('ALL')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${statusFilter === 'ALL'
-                ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
           >
             ทั้งหมด ({courses.length})
@@ -265,8 +265,8 @@ export default function AdminCourseManagementPage() {
             type="button"
             onClick={() => setStatusFilter('ACTIVE')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${statusFilter === 'ACTIVE'
-                ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                : 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+              ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+              : 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-50'
               }`}
           >
             กำลังเปิดสอน ({activeCount})
@@ -275,8 +275,8 @@ export default function AdminCourseManagementPage() {
             type="button"
             onClick={() => setStatusFilter('ARCHIVED')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${statusFilter === 'ARCHIVED'
-                ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
-                : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-50'
+              ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+              : 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-50'
               }`}
           >
             จัดเก็บแล้ว ({archivedCount})
@@ -288,16 +288,16 @@ export default function AdminCourseManagementPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200/60 text-xs font-bold text-slate-600">
-                  <th className="py-3.5 px-3 w-14 text-center">ลำดับ</th>
-                  <th className="py-3.5 px-4 w-20">รหัสวิชา</th>
-                  <th className="py-3.5 px-4 w-25">ชื่อรายวิชา</th>
-                  <th className="py-3.5 px-3 w-25 text-center">กลุ่ม</th>
-                  <th className="py-3.5 px-3 w-24 text-center">ภาคเรียน</th>
-                  <th className="py-3.5 px-3 w-28 text-center">จำนวนนักศึกษา</th>
-                  <th className="py-3.5 px-4 w-40">อาจารย์ผู้สอน</th>
-                  <th className="py-3.5 px-3 w-32 text-center">สถานะ</th>
-                  <th className="py-3.5 px-4 w-44 text-center">จัดการ</th>
+                <tr className="bg-slate-50/90 border-b border-slate-200/80 text-sm font-black text-slate-700">
+                  <th className="py-3.5 px-3 w-14 text-center whitespace-nowrap">ลำดับ</th>
+                  <th className="py-3.5 px-4 w-28 text-center whitespace-nowrap">รหัสวิชา</th>
+                  <th className="py-3.5 px-4 text-center whitespace-nowrap">ชื่อรายวิชา</th>
+                  <th className="py-3.5 px-3 w-20 text-center whitespace-nowrap">กลุ่ม</th>
+                  <th className="py-3.5 px-3 w-28 text-center whitespace-nowrap">ภาคเรียนที่</th>
+                  <th className="py-3.5 px-3 w-32 text-center whitespace-nowrap">จำนวนนักศึกษา</th>
+                  <th className="py-3.5 px-4 text-center whitespace-nowrap">อาจารย์ผู้สอน</th>
+                  <th className="py-3.5 px-3 w-32 text-center whitespace-nowrap">สถานะ</th>
+                  <th className="py-3.5 px-4 w-44 text-center whitespace-nowrap">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
@@ -320,12 +320,12 @@ export default function AdminCourseManagementPage() {
                       </td>
 
                       {/* รหัสวิชา */}
-                      <td className="py-3.5 px-4 font-mono font-bold text-emerald-700">
+                      <td className="py-3.5 px-4 font-mono font-bold text-emerald-700 text-center whitespace-nowrap">
                         {course.courseCode}
                       </td>
 
                       {/* ชื่อรายวิชา */}
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 text-left">
                         <Link
                           href={`/admin/courses/${course.id}/students`}
                           className="font-bold text-slate-800 hover:text-emerald-700 transition-colors inline-block"
@@ -335,17 +335,17 @@ export default function AdminCourseManagementPage() {
                       </td>
 
                       {/* กลุ่ม (Section) */}
-                      <td className="py-3.5 px-3 text-center font-medium text-slate-600">
+                      <td className="py-3.5 px-3 text-center font-medium text-slate-600 whitespace-nowrap">
                         {course.section || '1'}
                       </td>
 
                       {/* ภาคเรียน (Semester/Year) */}
-                      <td className="py-3.5 px-3 text-center font-medium text-slate-600">
+                      <td className="py-3.5 px-3 text-center font-medium text-slate-600 whitespace-nowrap">
                         {course.semester}/{course.academicYear}
                       </td>
 
                       {/* จำนวนนักศึกษา */}
-                      <td className="py-3.5 px-3 text-center font-medium">
+                      <td className="py-3.5 px-3 text-center font-medium whitespace-nowrap">
                         {(course._count?.students || 0) > 0 ? (
                           <span className="text-slate-700 font-bold">
                             {course._count.students} คน
@@ -357,15 +357,15 @@ export default function AdminCourseManagementPage() {
                         )}
                       </td>
 
-                      {/* อาจารย์ผู้สอน */}
-                      <td className="py-3.5 px-4 font-medium text-slate-700">
+                      {/* อาจารย์ผู้สอน (จัด text-center ให้ตรงกับหัวข้อฟิลด์พอดี) */}
+                      <td className="py-3.5 px-4 font-medium text-slate-700 text-center whitespace-nowrap">
                         {course.teacherDisplayName || (
                           <span className="text-amber-700">ไม่พบผู้สอน / บัญชีถูกลบ</span>
                         )}
                       </td>
 
                       {/* สถานะของวิชา */}
-                      <td className="py-3.5 px-3 text-center">
+                      <td className="py-3.5 px-3 text-center whitespace-nowrap">
                         {isArchived ? (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                             จัดเก็บแล้ว
@@ -380,8 +380,6 @@ export default function AdminCourseManagementPage() {
                       {/* จัดการ */}
                       <td className="py-3.5 px-4 text-center">
                         <div className="flex justify-center items-center gap-1.5">
-
-                          {/* 2. ดูรายชื่อนักศึกษา */}
                           <Link
                             href={`/admin/courses/${course.id}/students`}
                             title="จัดการรายชื่อนักศึกษา"
@@ -392,7 +390,6 @@ export default function AdminCourseManagementPage() {
                             </svg>
                           </Link>
 
-                          {/* 3. ดูรายงานการเข้าเรียน */}
                           <Link
                             href={`/admin/reports/courses/${course.id}`}
                             title="รายงานการเข้าเรียน"
@@ -403,7 +400,6 @@ export default function AdminCourseManagementPage() {
                             </svg>
                           </Link>
 
-                          {/* 4. ลบรายวิชา */}
                           <button
                             type="button"
                             onClick={() => setCourseToDelete({ id: course.id, name: course.courseName })}
@@ -481,7 +477,7 @@ export default function AdminCourseManagementPage() {
                 </div>
               </div>
 
-              {/* Grid 3 ช่องสำหรับ กลุ่มเรียน เทอม ปีการศึกษา */}
+              {/* Grid 3 ช่องสำหรับ กลุ่มเรียน ภาคเรียนที่ ปีการศึกษา */}
               <div className="grid grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/60">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">กลุ่มเรียน</label>
@@ -495,16 +491,16 @@ export default function AdminCourseManagementPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ภาคเรียน</label>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ภาคเรียนที่</label>
                   <select
                     required
                     value={newCourse.semester}
                     onChange={(e) => setNewCourse({ ...newCourse, semester: e.target.value })}
                     className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer text-center"
                   >
-                    <option value="1">เทอม 1</option>
-                    <option value="2">เทอม 2</option>
-                    <option value="3">ซัมเมอร์</option>
+                    <option value="1">ภาคเรียนที่ 1</option>
+                    <option value="2">ภาคเรียนที่ 2</option>
+                    <option value="3">ภาคเรียนที่ 3 (ซัมเมอร์)</option>
                   </select>
                 </div>
                 <div>
@@ -578,7 +574,7 @@ export default function AdminCourseManagementPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">ปีการศึกษา:</span>
-                <span className="font-bold text-slate-700">{newCourse.semester.trim()}/{newCourse.academicYear.trim()}</span>
+                <span className="font-bold text-slate-700">ภาคเรียนที่ {newCourse.semester.trim()}/{newCourse.academicYear.trim()}</span>
               </div>
               <div className="flex justify-between pt-1.5 border-t border-slate-200">
                 <span className="text-slate-400 font-bold">อาจารย์ผู้สอน:</span>
@@ -635,8 +631,8 @@ export default function AdminCourseManagementPage() {
                 disabled={isUpdatingStatus}
                 onClick={handleToggleCourseStatus}
                 className={`flex-1 text-white py-2 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer ${courseToToggleStatus.currentStatus === 'ARCHIVED'
-                    ? 'bg-emerald-700 hover:bg-emerald-800'
-                    : 'bg-amber-600 hover:bg-amber-700'
+                  ? 'bg-emerald-700 hover:bg-emerald-800'
+                  : 'bg-amber-600 hover:bg-amber-700'
                   }`}
               >
                 {isUpdatingStatus ? 'กำลังบันทึก...' : 'ยืนยัน'}

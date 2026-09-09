@@ -155,7 +155,7 @@ export default function StudentDashboard() {
   const handleJoinClick = (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) {
-      showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณากรอกรหัส Join Code (6 หลัก) ก่อนดำเนินการ');
+      showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณากรอกรหัสเข้าร่วมชั้นเรียน(6 หลัก) ก่อนดำเนินการ');
       return;
     }
 
@@ -399,7 +399,7 @@ export default function StudentDashboard() {
           <form onSubmit={handleJoinClick} className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
-              placeholder="กรอกรหัส JOIN CODE 6 หลัก"
+              placeholder="กรอกรหัสเข้าร่วมชั้นเรียน 6 หลัก"
               required
               maxLength={10}
               className="flex-1 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs md:text-sm font-mono font-bold text-slate-700 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
@@ -407,7 +407,7 @@ export default function StudentDashboard() {
               onChange={(e) => setJoinCode(e.target.value)}
             />
             <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs md:text-sm shadow-sm transition-all cursor-pointer">
-              JOIN
+              ยืนยีน
             </button>
           </form>
           {status && <p className="mt-3 text-xs font-bold text-emerald-700">{status}</p>}
@@ -434,7 +434,7 @@ export default function StudentDashboard() {
                     {course.courseName}
                   </h3>
                   <div className="text-xs text-slate-500 mb-4 font-medium flex gap-2 items-center">
-                    <span>เทอม {course.semester}/{course.academicYear}</span>
+                    <span>ภาคเรียนที่ {course.semester}/{course.academicYear}</span>
                   </div>
                 </div>
                 <div className="w-full bg-slate-50 text-slate-500 text-center py-2 rounded-xl text-[10px] font-bold border border-slate-100 uppercase group-hover:bg-emerald-50 group-hover:text-emerald-700 transition-colors">
@@ -718,7 +718,7 @@ export default function StudentDashboard() {
               </div>
 
               <div className="pt-3 border-t border-slate-100">
-                <label className="block text-xs font-bold text-emerald-700 mb-1">โมเดลใบหน้า (Face Scan)</label>
+                <label className="block text-xs font-bold text-emerald-700 mb-1">ลงทะเบียนใบหน้า</label>
                 <p className="text-[11px] text-slate-500 mb-3 font-medium">สามารถอัปเดตใบหน้าใหม่ได้ หากระบบสแกนเดิมมีปัญหา</p>
                 <button
                   type="button"

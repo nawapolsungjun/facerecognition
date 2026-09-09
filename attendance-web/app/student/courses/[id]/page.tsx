@@ -114,6 +114,32 @@ export default function StudentCourseDetailPage() {
     }
   }, [fetchDetails, router]);
 
+  // สกัดเอาเฉพาะใจความสำคัญของหมายเหตุ ตัดข้อความเวลาและแท็กรอบที่ซ้ำซ้อนออก
+  const cleanDisplayRemark = (str: string) => {
+    if (!str) return '';
+    const matchEdit = str.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
+    const editTimestamp = matchEdit ? matchEdit[0] : '';
+
+    let base = str
+      .replace(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/gi, '')
+      .replace(/\(แก้ไขเวลา[^)]*?\)/gi, '')
+      .replace(/\[\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}(\s*น\.)?\s*\]/gi, '')
+      .replace(/\(\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}(\s*น\.)?\s*\)/gi, '')
+      .replace(/\[คาบปกติ\]/gi, '')
+      .replace(/\[สอนชดเชย\]/gi, '')
+      .replace(/\(รอบที่\s*\d+\)/gi, '')
+      .replace(/\[รอบที่\s*\d+\]/gi, '')
+      .replace(/\(\s*\)/g, '')
+      .replace(/\[\s*\]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (editTimestamp) {
+      return base ? `${base} ${editTimestamp}` : editTimestamp;
+    }
+    return base;
+  };
+
   // กรองและเรียงลำดับรายการตามวันที่/เวลา
   const studentAttendanceList = useMemo(() => {
     if (!courseData?.attendance) return [];
@@ -241,7 +267,7 @@ export default function StudentCourseDetailPage() {
               <div className="text-xs text-slate-500 mt-1 font-medium flex gap-3 flex-wrap">
                 <span>กลุ่มเรียน: {courseData.section}</span>
                 <span>•</span>
-                <span>ภาคเรียน: {courseData.semester}/{courseData.academicYear}</span>
+                <span>ภาคเรียนที่: {courseData.semester}/{courseData.academicYear}</span>
               </div>
             )}
             <p className="text-xs text-slate-500 font-medium mt-1">
@@ -260,7 +286,7 @@ export default function StudentCourseDetailPage() {
             <div>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">เกณฑ์เวลาเรียน (ไม่ต่ำกว่า 80%)</span>
               <div className="flex items-baseline gap-2 mt-0.5">
-                <span className={`text-3xl font-black font-mono ${summary.percentage >= 80 ? 'text-emerald-700' : summary.percentage >= 70 ? 'text-amber-700' : 'text-red-750'
+                <span className={`text-3xl font-black font-mono ${summary.percentage >= 80 ? 'text-emerald-700' : summary.percentage >= 70 ? 'text-amber-700' : 'text-red-700'
                   }`}>
                   {summary.percentage}%
                 </span>
@@ -316,14 +342,14 @@ export default function StudentCourseDetailPage() {
         {activeTab === 'attendance' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-center border-collapse">
                 <thead>
-                  <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                    <th className="p-4 text-xs font-bold text-slate-600 w-24 text-center">ครั้งที่</th>
-                    <th className="p-4 text-xs font-bold text-slate-600 w-44">วันที่และเวลา</th>
-                    <th className="p-4 text-xs font-bold text-slate-600 w-40 text-left">รายละเอียด</th>
-                    <th className="p-4 text-xs font-bold text-slate-600 text-left">หมายเหตุ</th>
-                    <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">สถานะ</th>
+                  <tr className="bg-slate-50/90 border-b border-slate-200/80">
+                    <th className="p-4 text-sm font-black text-slate-700 w-24 text-center whitespace-nowrap">ครั้งที่</th>
+                    <th className="p-4 text-sm font-black text-slate-700 w-44 text-center whitespace-nowrap">วันที่และเวลา</th>
+                    <th className="p-4 text-sm font-black text-slate-700 w-40 text-center whitespace-nowrap">รายละเอียด</th>
+                    <th className="p-4 text-sm font-black text-slate-700 text-center min-w-[200px] whitespace-nowrap">หมายเหตุ</th>
+                    <th className="p-4 text-sm font-black text-slate-700 text-center w-28 whitespace-nowrap">สถานะ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -333,23 +359,23 @@ export default function StudentCourseDetailPage() {
                       const timeStr = a.time
                         ? new Date(a.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
                         : '';
-                      const displayRemark = (a.remark || '').trim();
+                      const displayRemark = cleanDisplayRemark(a.remark || '');
 
                       return (
                         <tr key={a.id || index} className="hover:bg-slate-50/60 transition-colors">
                           <td className="p-4 text-xs font-bold text-slate-700 text-center align-middle">
                             {index + 1}
                           </td>
-                          <td className="p-4 text-xs font-bold text-slate-700 whitespace-nowrap align-middle">
+                          <td className="p-4 text-xs font-bold text-slate-700 text-center whitespace-nowrap align-middle">
                             <div>{new Date(a.date || a.createdAt || Date.now()).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</div>
                             {timeStr && <div className="text-[11px] text-slate-400 font-medium mt-0.5">{timeStr} น.</div>}
                           </td>
-                          <td className="p-4 text-xs font-bold text-slate-700 align-middle">
+                          <td className="p-4 text-xs font-bold text-slate-700 text-center align-middle">
                             {isComp ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'}
                           </td>
                           <td className="p-4 text-xs text-slate-600 align-middle">
                             {displayRemark ? (
-                              <span className="text-xs text-slate-600 leading-relaxed font-medium">
+                              <span className="text-xs text-slate-700 leading-relaxed font-medium">
                                 {displayRemark}
                               </span>
                             ) : (
@@ -408,22 +434,22 @@ export default function StudentCourseDetailPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                      <th className="p-4 text-xs font-bold text-slate-600 w-16 text-center">ลำดับ</th>
+                    <tr className="bg-slate-50/90 border-b border-slate-200/80">
+                      <th className="p-4 text-sm font-black text-slate-700 w-16 text-center whitespace-nowrap">ลำดับ</th>
                       <th
-                        className="p-4 text-xs font-bold text-slate-600 w-48 cursor-pointer select-none hover:bg-slate-100 transition-colors"
+                        className="p-4 text-sm font-black text-slate-700 w-48 text-center cursor-pointer select-none hover:bg-slate-100 transition-colors whitespace-nowrap"
                         onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
                       >
-                        <div className="inline-flex items-center gap-1.5">
+                        <div className="inline-flex items-center justify-center gap-1.5 w-full">
                           <span>รหัสประจำตัว</span>
                           <span className="text-[10px] bg-slate-200/70 text-slate-600 px-1.5 py-0.5 rounded font-black">
                             {sortOrder === 'asc' ? '▲' : '▼'}
                           </span>
                         </div>
                       </th>
-                      <th className="p-4 text-xs font-bold text-slate-600 w-1/3">ชื่อ</th>
-                      <th className="p-4 text-xs font-bold text-slate-600">นามสกุล</th>
-                      <th className="p-4 text-xs font-bold text-slate-600 text-center w-36">สถานะ</th>
+                      <th className="p-4 text-sm font-black text-slate-700 w-1/3 text-center whitespace-nowrap">ชื่อ</th>
+                      <th className="p-4 text-sm font-black text-slate-700 text-center whitespace-nowrap">นามสกุล</th>
+                      <th className="p-4 text-sm font-black text-slate-700 text-center w-36 whitespace-nowrap">สถานะ</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -438,13 +464,13 @@ export default function StudentCourseDetailPage() {
                             <td className="p-4 text-xs font-bold text-slate-400 text-center align-middle">
                               {index + 1}
                             </td>
-                            <td className="p-4 font-mono font-bold text-emerald-700 text-xs md:text-sm align-middle">
+                            <td className="p-4 font-mono font-bold text-emerald-700 text-xs md:text-sm text-center align-middle whitespace-nowrap">
                               {f.studentCode}
                             </td>
-                            <td className="p-4 font-bold text-slate-800 text-xs md:text-sm align-middle">
+                            <td className="p-4 font-bold text-slate-800 text-xs md:text-sm text-center align-middle">
                               {firstName} {isMe && <span className="text-[11px] text-emerald-700 font-bold ml-1.5">(ฉัน)</span>}
                             </td>
-                            <td className="p-4 font-bold text-slate-700 text-xs md:text-sm align-middle">
+                            <td className="p-4 font-bold text-slate-700 text-xs md:text-sm text-center align-middle">
                               {lastName}
                             </td>
                             <td className="p-4 text-center align-middle">

@@ -5,7 +5,7 @@ import * as faceapi from 'face-api.js';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'https://face-recog-usa4.onrender.com';
+const AI_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
 
 interface ScanResult {
   url: string;
@@ -21,7 +21,7 @@ interface StudentInCourse {
   name?: string;
 }
 
-// ฟังก์ชันแปลงเวลา "HH:mm" ให้เป็นจำนวนนาที (เพื่อคำนวณเชิงตัวเลข)
+// ฟังก์ชันแปลงเวลา "HH:mm" ให้เป็นจำนวนนาที
 function timeToMinutes(timeStr: string): number {
   if (!timeStr) return 0;
   const [h, m] = timeStr.trim().split(':').map(Number);
@@ -40,19 +40,18 @@ function isTimeOverlapping(slot1: string, slot2: string): boolean {
   const start2 = timeToMinutes(s2);
   const end2 = timeToMinutes(e2);
 
-  // ทับซ้อนกันเมื่อ เวลาเริ่มของช่วงหลัง < เวลาจบของช่วงแรก
   return Math.max(start1, start2) < Math.min(end1, end2);
 }
 
-// ฟังก์ชันปรับขนาดรูปถ่ายกลุ่มเป็น 1920px (Full HD) เพื่อคงรายละเอียดใบหน้าคนแถวหลัง
-async function resizeGroupImage(file: File, maxDimension: number = 1920): Promise<{ resizedBlob: Blob; imgElement: HTMLImageElement }> {
+// ฟังก์ชันปรับขนาดรูปถ่ายกลุ่มและส่งคืน Canvas ที่ล็อกขนาดความกว้าง-ยาวแน่นอน
+async function resizeGroupImage(file: File, maxDimension: number = 1600): Promise<{ resizedBlob: Blob; canvas: HTMLCanvasElement; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        let width = img.width;
-        let height = img.height;
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
 
         if (width > maxDimension || height > maxDimension) {
           if (width > height) {
@@ -73,10 +72,8 @@ async function resizeGroupImage(file: File, maxDimension: number = 1920): Promis
 
         canvas.toBlob((blob) => {
           if (!blob) return reject(new Error('Resize blob failed'));
-          const resizedImg = new Image();
-          resizedImg.onload = () => resolve({ resizedBlob: blob, imgElement: resizedImg });
-          resizedImg.src = URL.createObjectURL(blob);
-        }, 'image/jpeg', 0.92);
+          resolve({ resizedBlob: blob, canvas, width, height });
+        }, 'image/jpeg', 0.90);
       };
       img.onerror = reject;
       img.src = e.target?.result as string;
@@ -267,14 +264,12 @@ export default function AttendancePage() {
     }
   }, [courseId, selectedDate, sessionType, slotMode]);
 
+  // โหลดโมเดลตรวจจับใบหน้า SSD MobileNet
   useEffect(() => {
     const loadModels = async () => {
       try {
         const MODEL_URL = '/models';
-        await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        ]);
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
         setIsLoading(false);
         setStatus('ระบบพร้อมใช้งาน');
       } catch {
@@ -293,7 +288,7 @@ export default function AttendancePage() {
 
   const isRoundLimitReached = dailyRoundNumber > 3;
 
-  // ตรวจสอบการชนกันของเวลา (Time Overlap Calculation)
+  // ตรวจสอบการชนกันของเวลา
   const timeSlotConflict = useMemo(() => {
     const currentSlotStr = `${startTime}-${endTime}`;
     const oppositeType = sessionType === 'REGULAR' ? 'COMPENSATION' : 'REGULAR';
@@ -348,7 +343,7 @@ export default function AttendancePage() {
     }
   };
 
-  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (ปรับสไตล์ให้ตรงกับหน้าประวัติ 100%)
+  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ
   const drawBoxes = useCallback((image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
     const displayWidth = image.clientWidth || image.width;
     const displayHeight = image.clientHeight || image.height;
@@ -377,43 +372,39 @@ export default function AttendancePage() {
       const dh = box.height * scaleY;
 
       const themeColor = isMatched ? '#10b981' : '#ef4444';
-      const borderThickness = Math.max(2.5, Math.round(displayWidth / 450));
+      
+      const borderThickness = Math.max(1.5, Math.round(displayWidth / 900));
 
-      // 1. วาดกรอบสี่เหลี่ยม
       ctx.strokeStyle = themeColor;
       ctx.lineWidth = borderThickness;
       ctx.strokeRect(dx, dy, dw, dh);
 
-      // 2. คำนวณขนาดตัวอักษรและป้ายชื่อ Auto-width
-      const fontSize = Math.max(12, Math.round(displayWidth / 75));
+      const fontSize = Math.max(10, Math.round(displayWidth / 110));
       ctx.font = `bold ${fontSize}px sans-serif`;
 
       const textMetrics = ctx.measureText(name);
       const textWidth = textMetrics.width;
-      const padX = 10;
-      const padY = 5;
+      const padX = 6;
+      const padY = 3;
       const badgeH = fontSize + padY * 2;
       const badgeW = textWidth + padX * 2;
 
-      // กึ่งกลางแนวนอน ด้านบนเหนือกอบ
       const badgeX = dx + (dw - badgeW) / 2;
-      let badgeY = dy - badgeH - 6;
-
+      
+      let badgeY = dy - badgeH + 2; 
       if (badgeY < 2) {
-        badgeY = dy + dh + 6;
+        badgeY = dy + 2;
       }
 
-      // 3. วาดพื้นหลังป้ายชื่อ
       ctx.fillStyle = themeColor;
       if (ctx.roundRect) {
         ctx.beginPath();
-        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5);
+        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
         ctx.fill();
       } else {
         ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
       }
 
-      // 4. วาดข้อความชื่อสีขาว
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -421,6 +412,7 @@ export default function AttendancePage() {
     });
   }, []);
 
+  // ฟังก์ชันสแกนแบบ High-Speed Batch
   const handleScanAttendance = async () => {
     if (timeSlotConflict.hasConflict) {
       showToast('error', 'ไม่สามารถสแกนได้', `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว กรุณาเลือกช่วงเวลาหรือประเภทคาบเรียนที่ถูกต้อง`);
@@ -432,61 +424,102 @@ export default function AttendancePage() {
       return;
     }
 
-    if (!selectedFiles || !courseId) return;
+    if (!selectedFiles || !courseId || selectedFiles.length === 0) return;
     setIsLoading(true);
+    setStatus(`กำลังตรวจจับใบหน้าจาก ${selectedFiles.length} รูป...`);
+
     const uniqueDetected = new Set<string>();
-    const updatedResults: ScanResult[] = [];
+    const preparedFiles: File[] = [];
+    const boxesPerImage: any[][] = [];
+    const objectUrls: string[] = [];
+
     setStatusOverrides({});
     setTimeOverrides({});
 
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        setStatus(`กำลังปรับขนาดและวิเคราะห์รูปที่ ${i + 1}/${selectedFiles.length}...`);
+        setStatus(`กำลังค้นหากรอบใบหน้า รูปที่ ${i + 1}/${selectedFiles.length}...`);
 
-        const { resizedBlob, imgElement } = await resizeGroupImage(file, 1920);
+        const { resizedBlob, canvas, width, height } = await resizeGroupImage(file, 1600);
         const objectUrl = URL.createObjectURL(resizedBlob);
+        objectUrls.push(objectUrl);
 
         const detections = await faceapi.detectAllFaces(
-          imgElement,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55, maxResults: 80 })
-        ).withFaceLandmarks();
+          canvas,
+          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.40, maxResults: 60 })
+        );
 
-        let currentBoxes: any[] = [];
-        let currentMatches: string[] = [];
+        const currentBoxes = detections.map((d: any) => ({
+          x: Math.round(d.box.x),
+          y: Math.round(d.box.y),
+          width: Math.round(d.box.width),
+          height: Math.round(d.box.height)
+        }));
 
-        if (detections.length > 0) {
-          currentBoxes = detections.map((d: any) => ({
-            x: d.detection.box.x,
-            y: d.detection.box.y,
-            width: d.detection.box.width,
-            height: d.detection.box.height
-          }));
+        console.log(`[Scan Image ${i + 1}] ความละเอียด: ${width}x${height} px, ตรวจพบใบหน้า: ${currentBoxes.length} ตำแหน่ง`);
 
-          const resizedFile = new File([resizedBlob], file.name, { type: 'image/jpeg' });
-          const formData = new FormData();
-          formData.append('file', resizedFile);
-          formData.append('boxes', JSON.stringify(currentBoxes));
-          formData.append('course_id', courseId);
+        boxesPerImage.push(currentBoxes);
+        preparedFiles.push(new File([resizedBlob], file.name, { type: 'image/jpeg' }));
+      }
 
-          const response = await fetch(`${AI_BASE_URL}/api/check-attendance-group`, {
-            method: 'POST',
-            body: formData,
-          });
+      setStatus(`ส่งวิเคราะห์เปรียบเทียบใบหน้ากับฐานข้อมูลนักศึกษา...`);
+      const formData = new FormData();
+      preparedFiles.forEach(f => formData.append('files', f));
+      formData.append('boxes_list', JSON.stringify(boxesPerImage));
+      formData.append('course_id', courseId);
 
-          if (!response.ok) {
-            throw new Error('AI Server ประมวลผลรูปภาพไม่สำเร็จ');
-          }
+      let response = await fetch(`${AI_BASE_URL}/api/check-attendance-group-batch`, {
+        method: 'POST',
+        body: formData,
+      });
 
-          const apiResult = await response.json();
-          currentMatches = Array.isArray(apiResult.matches) ? apiResult.matches : [];
+      const updatedResults: ScanResult[] = [];
 
-          currentMatches.forEach(name => {
+      if (response.ok) {
+        const batchResult = await response.json();
+        const resultsArray = Array.isArray(batchResult.results) ? batchResult.results : [];
+
+        resultsArray.forEach((item: any, idx: number) => {
+          const currentMatches = Array.isArray(item.matches) ? item.matches : [];
+          currentMatches.forEach((name: string) => {
             if (name && name !== 'Unknown') uniqueDetected.add(name);
           });
-        }
 
-        updatedResults.push({ url: objectUrl, boxes: currentBoxes, matches: currentMatches });
+          updatedResults.push({
+            url: objectUrls[idx],
+            boxes: boxesPerImage[idx] || [],
+            matches: currentMatches
+          });
+        });
+      } else {
+        // Fallback: ถ้าเอนด์พอยต์ batch ไม่พร้อม ให้สลับไปยิงทีละไฟล์
+        for (let i = 0; i < preparedFiles.length; i++) {
+          const singleFormData = new FormData();
+          singleFormData.append('file', preparedFiles[i]);
+          singleFormData.append('boxes', JSON.stringify(boxesPerImage[i]));
+          singleFormData.append('course_id', courseId);
+
+          const singleRes = await fetch(`${AI_BASE_URL}/api/check-attendance-group`, {
+            method: 'POST',
+            body: singleFormData,
+          });
+
+          if (!singleRes.ok) throw new Error(`ประมวลผลรูปที่ ${i + 1} ไม่สำเร็จ`);
+
+          const singleJson = await singleRes.json();
+          const currentMatches = Array.isArray(singleJson.matches) ? singleJson.matches : [];
+
+          currentMatches.forEach((name: string) => {
+            if (name && name !== 'Unknown') uniqueDetected.add(name);
+          });
+
+          updatedResults.push({
+            url: objectUrls[i],
+            boxes: boxesPerImage[i],
+            matches: currentMatches
+          });
+        }
       }
 
       setScanResults(updatedResults);
@@ -505,9 +538,10 @@ export default function AttendancePage() {
             }
           }
         });
-      }, 250);
+      }, 100);
 
     } catch (err: any) {
+      console.error('[Scan Attendance Error]:', err);
       setStatus(`ข้อผิดพลาด: ${err.message}`);
       showToast('error', 'เกิดข้อผิดพลาดในการสแกน', err.message);
     } finally {
@@ -530,7 +564,7 @@ export default function AttendancePage() {
 
   useEffect(() => {
     if (zoomedImageIdx !== null) {
-      const timer = setTimeout(renderZoomBoxes, 80);
+      const timer = setTimeout(renderZoomBoxes, 50);
       window.addEventListener('resize', renderZoomBoxes);
       return () => {
         clearTimeout(timer);
@@ -539,17 +573,16 @@ export default function AttendancePage() {
     }
   }, [zoomedImageIdx, renderZoomBoxes]);
 
+  // เปิด Modal แก้ไขสถานะและกำหนดให้ newStatus = currentStatus (เหมือน Admin)
   const handleOpenStatusModal = (item: any) => {
     const currentStatus = item.finalStatus || 'มาเรียน';
-    const availableStatuses = ALL_STATUSES.filter((s) => s !== currentStatus);
-    const initialNewStatus = availableStatuses[0] || 'มาเรียน';
 
     setEditingStudent({
       id: item.studentId,
       name: item.displayName,
       studentCode: item.studentCode,
       currentStatus: currentStatus,
-      newStatus: initialNewStatus,
+      newStatus: currentStatus, // เปลี่ยนตรงนี้ให้เป็นสถานะปัจจุบัน
       currentTime: timeOverrides[item.studentId] || '12:00',
       remark: item.remark || ''
     });
@@ -651,7 +684,7 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database (ดึงจาก imageRefs โดยตรง เสถียรและเร็วที่สุด)
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
@@ -700,31 +733,31 @@ export default function AttendancePage() {
                 const dh = box.height * scaleY;
 
                 const themeColor = isMatched ? '#10b981' : '#ef4444';
-                const borderThickness = Math.max(2.5, Math.round(w / 450));
+                const borderThickness = Math.max(1.5, Math.round(w / 900));
 
                 ctx.strokeStyle = themeColor;
                 ctx.lineWidth = borderThickness;
                 ctx.strokeRect(dx, dy, dw, dh);
 
-                const fontSize = Math.max(12, Math.round(w / 75));
+                const fontSize = Math.max(10, Math.round(w / 110));
                 ctx.font = `bold ${fontSize}px sans-serif`;
 
                 const textWidth = ctx.measureText(name).width;
-                const padX = 10;
-                const padY = 5;
+                const padX = 6;
+                const padY = 3;
                 const badgeH = fontSize + padY * 2;
                 const badgeW = textWidth + padX * 2;
 
                 const badgeX = dx + (dw - badgeW) / 2;
-                let badgeY = dy - badgeH - 6;
+                let badgeY = dy - badgeH + 2;
                 if (badgeY < 2) {
-                  badgeY = dy + dh + 6;
+                  badgeY = dy + 2;
                 }
 
                 ctx.fillStyle = themeColor;
                 if (ctx.roundRect) {
                   ctx.beginPath();
-                  ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5);
+                  ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
                   ctx.fill();
                 } else {
                   ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
@@ -737,7 +770,7 @@ export default function AttendancePage() {
               });
             }
 
-            resolve(canvas.toDataURL('image/jpeg', 0.70));
+            resolve(canvas.toDataURL('image/jpeg', 0.65));
           };
 
           if (existingImg && existingImg.complete && existingImg.naturalWidth > 0) {
@@ -806,7 +839,7 @@ export default function AttendancePage() {
           router.push(`/teacher/report/${courseId}`);
         });
       } else {
-        throw new Error(data.error);
+        throw new Error(data.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
       }
     } catch (err: any) {
       setShowConfirmModal(false);
@@ -954,7 +987,7 @@ export default function AttendancePage() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div>
               <span className="text-xs font-bold text-slate-800 block">ประเภทคาบเรียน</span>
-              <span className="text-[11px] text-slate-500">เลือกรูปแบบการเรียนการสอน</span>
+              <span className="text-xs text-slate-500">เลือกรูปแบบการเรียนการสอน</span>
             </div>
             <div className="inline-flex bg-slate-200/70 p-1 rounded-lg w-full sm:w-auto">
               <button
@@ -1396,6 +1429,10 @@ export default function AttendancePage() {
                   }}
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
                 >
+                  {/* ซ่อนสถานะปัจจุบันไม่ให้โผล่ซ้ำในตัวเลือก dropdown */}
+                  <option value={editingStudent.currentStatus} hidden>
+                    {editingStudent.currentStatus}
+                  </option>
                   {ALL_STATUSES.filter((s) => s !== editingStudent.currentStatus).map((status) => (
                     <option key={status} value={status}>{status}</option>
                   ))}

@@ -430,77 +430,6 @@ export default function AttendanceReportPage() {
     }
   };
 
-  const handleTimeChange = async (
-    studentId: string | number,
-    currentStatus: string,
-    newTimeStr: string,
-    currentRemark: string,
-  ) => {
-    const token = getAuthToken();
-    const now = new Date();
-    const dateFormatted = now.toLocaleDateString("th-TH", {
-      day: "numeric",
-      month: "short",
-      year: "2-digit",
-    });
-    const timeFormatted = now.toLocaleTimeString("th-TH", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    const cleanRemark = cleanRemarkString(currentRemark || "");
-    const timeStamp = `(แก้ไขโดยอาจารย์เมื่อ ${dateFormatted} เวลา ${timeFormatted} น.)`;
-    const finalRemark = cleanRemark
-      ? `${cleanRemark} ${timeStamp}`
-      : `แก้ไขเวลา ${timeStamp}`;
-
-    try {
-      const res = await fetch(`/api/attendance/direct`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          studentId,
-          courseId,
-          status: currentStatus,
-          date: selectedDate,
-          time: newTimeStr,
-          remark: finalRemark,
-        }),
-      });
-
-      if (res.ok) {
-        await Promise.all([
-          fetchDailyReport(selectedDate, selectedTimeSlot, selectedSessionType),
-          fetchWeeksSummary(),
-          fetchCourseDetailsAndHistory(),
-        ]);
-        setAlertModal({
-          show: true,
-          title: "แก้ไขเวลาเรียบร้อย",
-          message: "อัปเดตเวลาการเช็คชื่อเรียบร้อยแล้ว",
-          isSuccess: true,
-        });
-      } else {
-        setAlertModal({
-          show: true,
-          title: "เกิดข้อผิดพลาด",
-          message: "ไม่สามารถอัปเดตเวลาได้",
-          isSuccess: false,
-        });
-      }
-    } catch {
-      setAlertModal({
-        show: true,
-        title: "เกิดข้อผิดพลาด",
-        message: "เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์",
-        isSuccess: false,
-      });
-    }
-  };
-
   const handleSaveWeekNote = async () => {
     if (!editingWeekRemark) return;
     setIsSavingNote(true);
@@ -944,7 +873,7 @@ export default function AttendanceReportPage() {
                     <input
                       type="text"
                       readOnly
-                      value={courseInfo ? `${courseInfo.courseCode || ''} ${courseInfo.courseName || ''} (กลุ่ม ${courseInfo.section || '-'} | เทอม ${courseInfo.semester || '-'}/${courseInfo.academicYear || '-'})` : 'กำลังโหลด...'}
+                      value={courseInfo ? `${courseInfo.courseCode || ''} ${courseInfo.courseName || ''} (กลุ่ม ${courseInfo.section || '-'} | ภาคเรียนที่ ${courseInfo.semester || '-'}/${courseInfo.academicYear || '-'})` : 'กำลังโหลด...'}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold outline-none text-slate-600"
                     />
                   </div>
@@ -1000,28 +929,31 @@ export default function AttendanceReportPage() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse min-w-[850px]">
                     <thead>
-                      <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                        <th className="p-4 text-xs font-bold text-slate-600 w-14 text-center">ลำดับ</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 w-36">เวลาเช็คชื่อ</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 w-36">รหัสประจำตัว</th>
-                        <th className="p-4 text-xs font-bold text-slate-600">ชื่อ - นามสกุล</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">สถานะ</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-left">หมายเหตุ</th>
+                      <tr className="bg-slate-50/90 border-b border-slate-200/80">
+                        <th className="p-4 text-sm font-black text-slate-700 w-[6%] text-center whitespace-nowrap">ลำดับ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[11%] text-center whitespace-nowrap">เวลาเช็คชื่อ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[15%] text-center whitespace-nowrap">รหัสประจำตัว</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[14%] text-center whitespace-nowrap">ชื่อ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[14%] text-center whitespace-nowrap">นามสกุล</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[10%] text-center whitespace-nowrap">สถานะ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[22%] text-center whitespace-nowrap">หมายเหตุ</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-[8%] text-center whitespace-nowrap">จัดการ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {loading ? (
                         <tr>
-                          <td colSpan={6} className="p-14 text-center font-bold text-slate-400 animate-pulse">
+                          <td colSpan={8} className="p-14 text-center font-bold text-slate-400 animate-pulse">
                             กำลังโหลดข้อมูลประจำวัน...
                           </td>
                         </tr>
                       ) : filteredDailyData.length > 0 ? (
                         filteredDailyData.map((item: any, index: number) => {
                           const timeString = formatTimeString(item.time || item.updatedAt || item.createdAt);
-                          const displayName = `${item.firstName || ''} ${item.lastName || ''}`.trim() || item.name || 'ไม่ระบุชื่อ';
+                          const firstName = item.firstName || item.name || '-';
+                          const lastName = item.lastName || '-';
                           const displayRemark = formatDisplayRemark(item.remark);
 
                           const getStatusBadge = (status: string) => {
@@ -1043,67 +975,56 @@ export default function AttendanceReportPage() {
 
                           return (
                             <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                              <td className="p-4 text-xs font-bold text-slate-400 text-center">{index + 1}</td>
-                              <td className="p-4 text-xs font-medium text-slate-600">
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    type="time"
-                                    value={timeString}
-                                    onChange={(e) => handleTimeChange(item.id, item.status, e.target.value, item.remark)}
-                                    className="bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                                  />
-                                  <span className="text-[11px] text-slate-400">น.</span>
-                                </div>
+                              <td className="p-4 text-xs text-center font-bold text-slate-400">{index + 1}</td>
+                              <td className="p-4 text-xs text-center font-semibold text-slate-600 font-mono whitespace-nowrap">
+                                {timeString ? `${timeString} น.` : '-'}
                               </td>
-                              <td className="p-4 text-xs font-bold font-mono text-emerald-700">{item.studentCode}</td>
-                              <td className="p-4">
-                                <div className="text-xs font-bold text-slate-800">{displayName}</div>
-                              </td>
+                              <td className="p-4 text-xs text-center font-bold font-mono text-emerald-700 whitespace-nowrap">{item.studentCode || '-'}</td>
+                              <td className="p-4 text-xs text-center font-bold text-slate-800 truncate" title={firstName}>{firstName}</td>
+                              <td className="p-4 text-xs text-center font-bold text-slate-800 truncate" title={lastName}>{lastName}</td>
                               <td className="p-4 text-center">
-                                <span className={`inline-flex items-center justify-center px-3 py-1 rounded-xl text-xs font-bold border ${getStatusBadge(item.status)}`}>
+                                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-xl text-xs font-bold border ${getStatusBadge(item.status)}`}>
                                   {item.status || '-'}
                                 </span>
                               </td>
-                              <td className="p-4">
-                                <div className="flex items-center justify-between gap-3 w-full">
-                                  <div className="flex-1">
-                                    {displayRemark ? (
-                                      <span className="text-xs font-bold text-slate-700 break-words leading-relaxed">
-                                        {displayRemark}
-                                      </span>
-                                    ) : (
-                                      <span className="text-xs text-slate-300 italic">
-                                        - ไม่มีหมายเหตุ -
-                                      </span>
-                                    )}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenStatusModal(item, timeString)}
-                                    className="p-2 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 active:scale-95 rounded-xl border border-transparent hover:border-emerald-200 transition-all cursor-pointer shrink-0"
-                                    title="แก้ไขสถานะ / หมายเหตุ"
+                              <td className="p-4 text-left">
+                                {displayRemark ? (
+                                  <span className="text-xs font-bold text-slate-700 break-words leading-relaxed block">
+                                    {displayRemark}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-300 italic">
+                                    - ไม่มีหมายเหตุ -
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-4 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStatusModal(item, timeString)}
+                                  className="p-2 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 active:scale-95 rounded-xl border border-transparent hover:border-emerald-200 transition-all cursor-pointer"
+                                  title="แก้ไขสถานะ / หมายเหตุ"
+                                >
+                                  <svg
+                                    className="w-4 h-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
                                   >
-                                    <svg
-                                      className="w-4 h-4"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                    </svg>
-                                  </button>
-                                </div>
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
+                                </button>
                               </td>
                             </tr>
                           );
                         })
                       ) : (
                         <tr>
-                          <td colSpan={6} className="p-16 text-center text-slate-400 font-bold text-xs">
+                          <td colSpan={8} className="p-16 text-center text-slate-400 font-bold text-xs">
                             ไม่พบข้อมูลการเช็คชื่อสำหรับวันที่เลือก
                           </td>
                         </tr>
@@ -1143,15 +1064,15 @@ export default function AttendanceReportPage() {
 
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
                     <thead>
-                      <tr className="bg-slate-50/80 border-b border-slate-200/60">
-                        <th className="p-4 text-xs font-bold text-slate-600 w-20 text-center">สัปดาห์ที่</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 w-35">วันที่และช่วงเวลา</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-30">จำนวนนักศึกษา</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-[350px]">สรุปการเข้าเรียน (คน)</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-center w-28">อัตราเข้าเรียน</th>
-                        <th className="p-4 text-xs font-bold text-slate-600 text-left">หมายเหตุ</th>
+                      <tr className="bg-slate-50/90 border-b border-slate-200/80">
+                        <th className="p-4 text-sm font-black text-slate-700 w-20 text-center whitespace-nowrap">สัปดาห์ที่</th>
+                        <th className="p-4 text-sm font-black text-slate-700 w-48 text-center whitespace-nowrap">วันที่และช่วงเวลา</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center w-20 whitespace-nowrap">จำนวนนักศึกษา</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center w-[350px]">สรุปการเข้าเรียน</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center w-28 whitespace-nowrap">อัตราเข้าเรียน</th>
+                        <th className="p-4 text-sm font-black text-slate-700 text-center min-w-[200px]">หมายเหตุ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -1199,17 +1120,17 @@ export default function AttendanceReportPage() {
                                 </span>
                               </td>
                               <td
-                                className="p-4 text-xs font-bold text-slate-700 cursor-pointer"
+                                className="p-4 text-xs font-bold text-slate-700 cursor-pointer whitespace-nowrap"
                                 onClick={() => handleSelectWeek(week)}
                                 title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
                               >
                                 {week.dateStr !== 'ยังไม่บันทึก' ? (
                                   <div>
-                                    <span className="text-emerald-800 font-bold block">
-                                      {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-[10px] ml-1">(ชดเชย)</span>}
+                                    <span className="text-emerald-800 text-center font-bold block whitespace-nowrap">
+                                      {week.dateStr} {week.sessionType === 'COMPENSATION' && <span className="text-amber-600 text-x ml-1">(ชดเชย)</span>}
                                     </span>
                                     {week.timeStr && (
-                                      <span className="text-[11px] text-slate-500 font-medium block mt-0.5">
+                                      <span className="text-xs text-center text-slate-500 font-medium block mt-0.5 whitespace-nowrap">
                                         {getTimeSlotLabel(week.timeStr)}
                                       </span>
                                     )}
@@ -1416,9 +1337,9 @@ export default function AttendanceReportPage() {
                   <button
                     type="submit"
                     disabled={isSubmittingEdit}
-                    className="flex-[2] bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
+                    className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
                   >
-                    {isSubmittingEdit ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+                    {isSubmittingEdit ? 'กำลังบันทึก...' : 'บันทึก'}
                   </button>
                 </div>
               </form>

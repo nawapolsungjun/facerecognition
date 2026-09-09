@@ -133,8 +133,6 @@ export default function CourseAttendanceSheetPrintForm({
                       <span>{courseInfo.teacherName || 'อาจารย์ประจำวิชา'}</span>
                     </div>
                     <div>
-                      <span className="font-bold">วัน-เวลาเรียน: </span>
-                      <span>{courseInfo.studyTime || 'ตามตารางสอนประจำภาคการศึกษา'}</span>
                     </div>
                     <div>
                       <span className="font-bold">จำนวนนักศึกษาทั้งหมด: </span>

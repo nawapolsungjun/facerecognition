@@ -520,13 +520,13 @@ export default function TeacherDashboard() {
                       {course.courseName}
                     </h2>
 
-                    {/* แสดงกลุ่มเรียน เทอม/ปี และ Join Code บนการ์ด */}
+                    {/* แสดงกลุ่มเรียน ภาคเรียน/ปี และ Join Code บนการ์ด */}
                     <div className="mt-2 space-y-1.5 text-xs">
                       <div className="text-white font-medium">
-                        กลุ่ม {course.section || '1'} • เทอม {course.semester || '1'}/{course.academicYear || '2569'}
+                        กลุ่ม {course.section || '1'} • ภาคเรียนที่ {course.semester || '1'}/{course.academicYear || '2569'}
                       </div>
                       <div className="inline-flex items-center gap-1.5 bg-white/20 px-2.5 py-1 rounded-lg font-mono font-bold tracking-wider">
-                        <span>Join Code:</span>
+                        <span>รหัสเข้าร่วมชั้นเรียน:</span>
                         <span className="select-all text-white">{course.joinCode || '-'}</span>
                       </div>
                     </div>
@@ -654,7 +654,7 @@ export default function TeacherDashboard() {
               {/* Grid 3 ช่องสำหรับ กลุ่มเรียน เทอม ปีการศึกษา */}
               <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/60">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">กลุ่มเรียน (Section)</label>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">กลุ่มเรียน</label>
                   <input
                     required
                     type="text"
@@ -665,16 +665,16 @@ export default function TeacherDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ภาคเรียน (Semester)</label>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">ภาคเรียน</label>
                   <select
                     required
                     value={newCourse.semester}
                     onChange={(e) => setNewCourse({ ...newCourse, semester: e.target.value })}
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
                   >
-                    <option value="1">เทอม 1</option>
-                    <option value="2">เทอม 2</option>
-                    <option value="3">เทอม 3 (ซัมเมอร์)</option>
+                    <option value="1">ภาคเรียนที่ 1</option>
+                    <option value="2">ภาคเรียนที่ 2</option>
+                    <option value="3">ภาคเรียนที่ 3 (ซัมเมอร์)</option>
                   </select>
                 </div>
                 <div>

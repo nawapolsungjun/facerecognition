@@ -17,13 +17,13 @@ export async function POST(request: Request) {
       imageUrls,
       imageUrl,
       attendanceData,
-      detectedNames, // (ไม่ได้ใช้บันทึกตรงๆ แต่รับมาได้)
+      detectedNames,
       note,
       sessionNote,
       round,
     } = body;
 
-    // 1. ตรวจสอบความถูกต้องของ courseId
+    // 1. ตรวจสอบ courseId
     if (!courseId) {
       return NextResponse.json(
         { success: false, error: 'ไม่พบรหัสรายวิชา' },
@@ -46,37 +46,45 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. จัดการแปลงรูปภาพเป็นไฟล์จริงใน public/uploads/
-    let finalImageUrl: string | null = null;
-    const rawImage = imageUrl || (Array.isArray(imageUrls) && imageUrls[0]) || null;
+    // 3. จัดการเขียนไฟล์รูปภาพลงโฟลเดอร์ public/uploads/ (รองรับทั้งรูปเดี่ยวและหลายรูป)
+    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
 
-    if (rawImage && typeof rawImage === 'string') {
+    const savedImagePaths: string[] = [];
+    const incomingImages: string[] = [];
+
+    if (Array.isArray(imageUrls) && imageUrls.length > 0) {
+      incomingImages.push(...imageUrls);
+    } else if (imageUrl && typeof imageUrl === 'string') {
+      incomingImages.push(imageUrl);
+    }
+
+    for (const rawImage of incomingImages) {
+      if (!rawImage || typeof rawImage !== 'string') continue;
+
       if (rawImage.startsWith('data:image')) {
-        // หากส่งมาเป็น Base64 ให้เขียนไฟล์ลง public/uploads/
         try {
-          const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-          if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-          }
-
           const matches = rawImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
           if (matches && matches.length === 3) {
             const buffer = Buffer.from(matches[2], 'base64');
-            const fileName = `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`;
+            const fileName = `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.jpg`;
             const filePath = path.join(uploadDir, fileName);
 
             fs.writeFileSync(filePath, buffer);
-            finalImageUrl = `/uploads/${fileName}`; // ได้ Path รูปแบบเดียวกับ 3 แถวด้านบน
+            savedImagePaths.push(`/uploads/${fileName}`);
           }
         } catch (fileErr) {
           console.error('Save image file error:', fileErr);
-          finalImageUrl = null;
         }
       } else if (rawImage.startsWith('/uploads/')) {
-        // หากส่งมาเป็น URL Path อยู่แล้ว
-        finalImageUrl = rawImage;
+        savedImagePaths.push(rawImage);
       }
     }
+
+    // จัดเก็บรูปแรกเป็นตัวหลัก และเก็บ Path ทั้งหมด
+    const finalImageUrl = savedImagePaths.length > 0 ? savedImagePaths[0] : null;
 
     // 4. บันทึกวันและเวลา
     const now = new Date();
@@ -103,12 +111,12 @@ export async function POST(request: Request) {
       ? `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber}) - ${customRemark}`
       : `[${currentSlot}] ${currentType === 'COMPENSATION' ? '[สอนชดเชย]' : '[คาบปกติ]'} (รอบที่ ${currentRoundNumber})`;
 
-    // 5. สร้าง Map สถานะนักศึกษา (รับ "รอตรวจสอบ" มาจาก Frontend)
+    // 5. สร้าง Map สถานะนักศึกษา
     const statusMap = new Map<string, { status: string; remark?: string }>();
     if (Array.isArray(attendanceData)) {
       attendanceData.forEach((item: any) => {
         if (item.studentId !== undefined && item.studentId !== null) {
-          statusMap.set(String(item.studentId), {
+          statusMap.set(String(item.studentId).trim(), {
             status: item.status || 'ขาดเรียน',
             remark: item.remark || undefined,
           });
@@ -116,7 +124,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 6. บันทึกลงฐานข้อมูล
+    // 6. บันทึกลงฐานข้อมูลผ่าน Transaction
     const result = await prisma.$transaction(
       async (tx) => {
         // สร้างรอบการเช็คชื่อหลัก (AttendanceSession)
@@ -126,15 +134,15 @@ export async function POST(request: Request) {
             roundNumber: currentRoundNumber,
             imageUrl: finalImageUrl,
             note: defaultSessionNote,
-            timeSlot: currentSlot,       // ✅ เพิ่มบันทึกเวลาคาบเรียน
-            sessionType: currentType,    // ✅ เพิ่มบันทึกประเภทคาบเรียน (ปกติ/ชดเชย)
+            timeSlot: currentSlot,
+            sessionType: currentType,
             createdAt: sessionDate,
           },
         });
 
-        // สร้างประวัติของนักศึกษาแต่ละคน (Attendance)
+        // สร้างประวัติของนักศึกษาแต่ละคนในวิชา
         const attendanceRecords = course.students.map((student: any) => {
-          const evaluated = statusMap.get(String(student.id));
+          const evaluated = statusMap.get(String(student.id).trim());
           const finalStatus = evaluated ? evaluated.status : 'ขาดเรียน';
 
           let finalRemark = evaluated?.remark;
@@ -167,10 +175,11 @@ export async function POST(request: Request) {
           roundNumber: currentRoundNumber,
           sessionType: currentType,
           timeSlot: currentSlot,
+          totalSavedImages: savedImagePaths.length,
         };
       },
       {
-        timeout: 15000,
+        timeout: 20000, // ขยายเวลารองรับการบันทึกรูป
       }
     );
 
@@ -181,7 +190,7 @@ export async function POST(request: Request) {
       data: result,
     });
   } catch (error: any) {
-    console.error('Confirm Attendance API Error:', error);
+    console.error('[API Confirm Error]:', error);
     return NextResponse.json(
       { success: false, error: error.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' },
       { status: 500 }
