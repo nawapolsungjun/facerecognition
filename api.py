@@ -269,7 +269,7 @@ async def register_face_multi(files: List[UploadFile] = File(...)):
         "face_vectors": face_vectors
     }
 
-def match_faces_with_known_students(enhanced_img: np.ndarray, parsed_boxes: list, known_students: list, tolerance: float = 0.52):
+def match_faces_with_known_students(enhanced_img: np.ndarray, parsed_boxes: list, known_students: list, tolerance: float = 0.58):
     img_h, img_w = enhanced_img.shape[:2]
     face_locations = []
 
