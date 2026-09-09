@@ -750,10 +750,17 @@ export default function AttendanceReportPage() {
           const day = String(d.getDate()).padStart(2, "0");
           const sessionDateStr = `${y}-${m}-${day}`;
 
-          const isSessionMatch = session.id && weekSession.sessionIds.includes(String(session.id));
-          const isDateMatch = sessionDateStr === weekSession.dateStr;
+          let sessSlot = session.timeSlot || "";
+          const fullText = `${session.note || ""} ${session.timeSlot || ""}`;
+          const timeMatch = fullText.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+          if (timeMatch) {
+            sessSlot = `${timeMatch[1]}-${timeMatch[2]}`.replace(/\s+/g, "");
+          }
 
-          if (isSessionMatch || isDateMatch) {
+          const isSessionMatch = session.id && weekSession.sessionIds.includes(String(session.id));
+          const isSlotMatch = sessionDateStr === weekSession.dateStr && (sessSlot ? sessSlot === weekSession.timeSlot : true);
+
+          if (isSessionMatch || isSlotMatch) {
             const records = session.attendances || session.records || [];
             const r = records.find((item: AttendanceItem) => {
               const rId = String(item.studentId || item.student?.id || item.id || "");
@@ -1156,32 +1163,38 @@ export default function AttendanceReportPage() {
                         </tr>
                       ) : (
                         weeksList.map((week) => {
-                          const presentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาเรียน').length;
-                          const lateCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาสาย').length;
-                          const pendingCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'รอตรวจสอบ').length;
-                          const leaveCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ลา').length;
-                          const absentCount = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ขาดเรียน').length;
+                          const hasApiData = week.isChecked && (week.present + week.late + week.leave + week.pending + week.absent > 0);
+
+                          const fallbackPresent = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาเรียน').length;
+                          const fallbackLate = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'มาสาย').length;
+                          const fallbackPending = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'รอตรวจสอบ').length;
+                          const fallbackLeave = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ลา').length;
+                          const fallbackAbsent = printStudentsData.filter((s: any) => s.records[week.weekNumber] === 'ขาดเรียน').length;
+
+                          const presentCount = hasApiData ? week.present : fallbackPresent;
+                          const lateCount = hasApiData ? week.late : fallbackLate;
+                          const pendingCount = hasApiData ? week.pending : fallbackPending;
+                          const leaveCount = hasApiData ? week.leave : fallbackLeave;
+                          const absentCount = hasApiData ? week.absent : fallbackAbsent;
 
                           const sumRecorded = presentCount + lateCount + pendingCount + leaveCount + absentCount;
-                          const isRecorded = sumRecorded > 0;
+                          const isRecorded = week.isChecked || sumRecorded > 0;
 
                           const percent = isRecorded && totalStudentsCount > 0
-                            ? Math.round(((presentCount + lateCount) / totalStudentsCount) * 100)
+                            ? (week.percentage > 0 ? week.percentage : Math.round(((presentCount + lateCount) / totalStudentsCount) * 100))
                             : 0;
 
                           return (
                             <tr
                               key={week.weekNumber}
-                              className={`transition-colors ${isRecorded ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'
-                                }`}
+                              className={`transition-colors ${isRecorded ? 'hover:bg-emerald-50/30 bg-white' : 'hover:bg-slate-50/80 bg-slate-50/20'}`}
                             >
                               <td
                                 className="p-4 text-center cursor-pointer"
                                 onClick={() => handleSelectWeek(week)}
                                 title="คลิกเพื่อดูรายชื่อนักศึกษาในรอบนี้"
                               >
-                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${isRecorded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'
-                                  }`}>
+                                <span className={`inline-flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs ${isRecorded ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'}`}>
                                   {week.weekNumber}
                                 </span>
                               </td>
