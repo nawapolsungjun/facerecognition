@@ -120,6 +120,13 @@ export default function AttendancePage() {
   const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน'>('ทั้งหมด');
   const [zoomedImageIdx, setZoomedImageIdx] = useState<number | null>(null);
 
+  // State สำหรับ Modal ยืนยันการลบกรอบใบหน้า
+  const [deleteBoxTarget, setDeleteBoxTarget] = useState<{
+    imgIndex: number;
+    boxIndex: number;
+    name: string;
+  } | null>(null);
+
   const [statusOverrides, setStatusOverrides] = useState<Record<number, string>>({});
   const [timeOverrides, setTimeOverrides] = useState<Record<number, string>>({});
   const [editingStudent, setEditingStudent] = useState<{
@@ -372,7 +379,6 @@ export default function AttendancePage() {
       const dh = box.height * scaleY;
 
       const themeColor = isMatched ? '#10b981' : '#ef4444';
-      
       const borderThickness = Math.max(1.5, Math.round(displayWidth / 900));
 
       ctx.strokeStyle = themeColor;
@@ -573,6 +579,88 @@ export default function AttendancePage() {
     }
   }, [zoomedImageIdx, renderZoomBoxes]);
 
+  // เมื่อคลิกที่รูปภาพ ให้ตรวจสอบว่าโดนกรอบไหนเพื่อเปิด Modal ยืนยันการลบ
+  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>, imgIndex: number) => {
+    const imgElement = e.currentTarget;
+    const rect = imgElement.getBoundingClientRect();
+
+    const scaleX = (imgElement.naturalWidth || imgElement.width) / rect.width;
+    const scaleY = (imgElement.naturalHeight || imgElement.height) / rect.height;
+
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
+
+    const currentResult = scanResults[imgIndex];
+    if (!currentResult) return;
+
+    const clickedBoxIndex = currentResult.boxes.findIndex((box) => {
+      const padding = 15;
+      return (
+        clickX >= box.x - padding &&
+        clickX <= box.x + box.width + padding &&
+        clickY >= box.y - padding &&
+        clickY <= box.y + box.height + padding
+      );
+    });
+
+    if (clickedBoxIndex > -1) {
+      const targetName = currentResult.matches[clickedBoxIndex] || 'Unknown';
+      // เปิด Custom Modal ยืนยันการลบแทนการใช้ window.confirm
+      setDeleteBoxTarget({
+        imgIndex,
+        boxIndex: clickedBoxIndex,
+        name: targetName,
+      });
+    }
+  };
+
+  // ฟังก์ชันดำเนินการลบกรอบเมื่อผู้ใช้กดยืนยันใน Modal
+  const handleConfirmDeleteBox = () => {
+    if (!deleteBoxTarget) return;
+
+    const { imgIndex, boxIndex, name } = deleteBoxTarget;
+    const displayName = name !== 'Unknown' ? `"${name}"` : 'Unknown';
+
+    const updatedScanResults = [...scanResults];
+    const newBoxes = [...updatedScanResults[imgIndex].boxes];
+    const newMatches = [...updatedScanResults[imgIndex].matches];
+
+    newBoxes.splice(boxIndex, 1);
+    newMatches.splice(boxIndex, 1);
+
+    updatedScanResults[imgIndex] = {
+      ...updatedScanResults[imgIndex],
+      boxes: newBoxes,
+      matches: newMatches,
+    };
+
+    setScanResults(updatedScanResults);
+
+    // คำนวณรายชื่อนักศึกษาที่ตรวจพบใหม่
+    const allRemainingNames = new Set<string>();
+    updatedScanResults.forEach((res) => {
+      res.matches.forEach((matchedName) => {
+        if (matchedName && matchedName !== 'Unknown') allRemainingNames.add(matchedName);
+      });
+    });
+
+    setDetectedStudents(Array.from(allRemainingNames));
+    setDeleteBoxTarget(null);
+    showToast('success', 'ลบกรอบเรียบร้อย', `ลบกรอบ ${displayName} ออกจากผลการสแกนแล้ว`);
+
+    // วาด Canvas ในมุมมองขยายใหม่ทันที
+    if (zoomCanvasRef.current && zoomImgRef.current) {
+      drawBoxes(zoomImgRef.current, zoomCanvasRef.current, newBoxes, newMatches);
+    }
+
+    // วาด Canvas บนหน้ารายการหลักด้วย
+    const mainCanvas = canvasRefs.current[imgIndex];
+    const mainImg = imageRefs.current[imgIndex];
+    if (mainCanvas && mainImg) {
+      drawBoxes(mainImg, mainCanvas, newBoxes, newMatches);
+    }
+  };
+
   // เปิด Modal แก้ไขสถานะและกำหนดให้ newStatus = currentStatus (เหมือน Admin)
   const handleOpenStatusModal = (item: any) => {
     const currentStatus = item.finalStatus || 'มาเรียน';
@@ -582,7 +670,7 @@ export default function AttendancePage() {
       name: item.displayName,
       studentCode: item.studentCode,
       currentStatus: currentStatus,
-      newStatus: currentStatus, // เปลี่ยนตรงนี้ให้เป็นสถานะปัจจุบัน
+      newStatus: currentStatus,
       currentTime: timeOverrides[item.studentId] || '12:00',
       remark: item.remark || ''
     });
@@ -1350,7 +1438,7 @@ export default function AttendancePage() {
         </p>
       </footer>
 
-      {/* Modal Popup: ขยายรูปภาพ */}
+      {/* Modal Popup: ขยายรูปภาพพร้อมฟีเจอร์คลิกที่กรอบเพื่อลบ */}
       {zoomedImageIdx !== null && scanResults[zoomedImageIdx] && (
         <div
           className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
@@ -1366,7 +1454,10 @@ export default function AttendancePage() {
                   รูปภาพที่ {zoomedImageIdx + 1} (มุมมองขนาดขยาย)
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">
-                  ตรวจพบใบหน้าทั้งหมด {scanResults[zoomedImageIdx].boxes?.length || 0} ตำแหน่ง
+                  ตรวจพบใบหน้าทั้งหมด {scanResults[zoomedImageIdx].boxes?.length || 0} ตำแหน่ง 
+                  <span className="text-emerald-700 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    💡 คลิกที่กรอบเพื่อลบใบหน้าที่ตรวจจับผิด
+                  </span>
                 </p>
               </div>
               <button
@@ -1385,14 +1476,58 @@ export default function AttendancePage() {
                   ref={zoomImgRef}
                   src={scanResults[zoomedImageIdx].url}
                   alt="Zoomed Scan Result"
-                  className="max-h-[72vh] w-auto max-w-full object-contain block rounded-lg"
+                  className="max-h-[72vh] w-auto max-w-full object-contain block rounded-lg cursor-pointer"
                   onLoad={renderZoomBoxes}
+                  onClick={(e) => handleImageClick(e, zoomedImageIdx)}
+                  title="คลิกที่กรอบใบหน้าเพื่อลบ"
                 />
                 <canvas
                   ref={zoomCanvasRef}
                   className="absolute top-0 left-0 w-full h-full pointer-events-none"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Popup: ยืนยันการลบกรอบใบหน้า (แทน alert/confirm เบราว์เซอร์) */}
+      {deleteBoxTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
+              </svg>
+            </div>
+
+            <h3 className="text-lg font-black text-slate-800 mb-1.5">ยืนยันการลบกรอบใบหน้า</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6 font-medium">
+              คุณต้องการลบกรอบใบหน้า{' '}
+              <span className="font-bold text-slate-800">
+                {deleteBoxTarget.name !== 'Unknown' ? `"${deleteBoxTarget.name}"` : 'Unknown'}
+              </span>{' '}
+              นี้ออกจากผลการสแกนใช่หรือไม่?
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteBoxTarget(null)}
+                className="flex-1 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 transition-all cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteBox}
+                className="flex-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer"
+              >
+                ยืนยัน
+              </button>
             </div>
           </div>
         </div>
@@ -1429,7 +1564,6 @@ export default function AttendancePage() {
                   }}
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs md:text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
                 >
-                  {/* ซ่อนสถานะปัจจุบันไม่ให้โผล่ซ้ำในตัวเลือก dropdown */}
                   <option value={editingStudent.currentStatus} hidden>
                     {editingStudent.currentStatus}
                   </option>
