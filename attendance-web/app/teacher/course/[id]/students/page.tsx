@@ -648,6 +648,7 @@ export default function StudentListPage() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-base font-black text-slate-800">เพิ่มนักศึกษาเข้าสู่รายวิชานี้</h3>
+            
           </div>
 
           <form onSubmit={handleAddStudents} className="flex flex-col sm:flex-row gap-3 items-center">

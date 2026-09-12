@@ -350,7 +350,17 @@ export default function AttendancePage() {
     }
   };
 
-  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ
+  // ฟังก์ชันย่อชื่อให้สั้นเพื่อไม่ให้ป้ายยาวเกินกรอบ
+  const formatShortLabel = (fullName: string) => {
+    if (!fullName || fullName === 'Unknown') return 'Unknown';
+    // 1. ตัดคำนำหน้า
+    let cleaned = fullName.replace(/^(นาย|นางสาว|นาง|น\.ส\.)\s*/, '').trim();
+    // 2. ตัดเอาเฉพาะชื่อตัวแรก (ตัดนามสกุลออกบนรูปภาพ)
+    const parts = cleaned.split(/\s+/);
+    return parts[0] || fullName;
+  };
+
+  // ฟังก์ชันวาดกรอบ Canvas บนหน้าจอ (ป้องกันป้ายชื่อซ้อนทับกัน และสลับตำแหน่งไม่ให้บังใบหน้าคนด้านหลัง)
   const drawBoxes = useCallback((image: HTMLImageElement, canvas: HTMLCanvasElement, boxes: any[], matches: any[]) => {
     const displayWidth = image.clientWidth || image.width;
     const displayHeight = image.clientHeight || image.height;
@@ -369,39 +379,57 @@ export default function AttendancePage() {
     const scaleX = displayWidth / naturalWidth;
     const scaleY = displayHeight / naturalHeight;
 
-    boxes.forEach((box, index) => {
-      const name = matches[index] || 'Unknown';
-      const isMatched = name !== 'Unknown';
+    // คำนวณพิกัดที่ปรับสเกลแล้วของทุกกล่องไว้ล่วงหน้า เพื่อใช้ตรวจจับการซ้อนทับ
+    const scaledBoxes = boxes.map((box, idx) => ({
+      x: box.x * scaleX,
+      y: box.y * scaleY,
+      w: box.width * scaleX,
+      h: box.height * scaleY,
+      name: matches[idx] || 'Unknown',
+      shortName: formatShortLabel(matches[idx] || 'Unknown'),
+    }));
 
-      const dx = box.x * scaleX;
-      const dy = box.y * scaleY;
-      const dw = box.width * scaleX;
-      const dh = box.height * scaleY;
-
+    scaledBoxes.forEach((currentBox, index) => {
+      const isMatched = currentBox.name !== 'Unknown';
       const themeColor = isMatched ? '#10b981' : '#ef4444';
       const borderThickness = Math.max(1.5, Math.round(displayWidth / 900));
 
+      // 1. วาดกรอบใบหน้า
       ctx.strokeStyle = themeColor;
       ctx.lineWidth = borderThickness;
-      ctx.strokeRect(dx, dy, dw, dh);
+      ctx.strokeRect(currentBox.x, currentBox.y, currentBox.w, currentBox.h);
 
-      const fontSize = Math.max(10, Math.round(displayWidth / 110));
+      // 2. ปรับขนาดฟอนต์ให้พอดีกับกรอบ (ไม่ใหญ่จนล้น)
+      const fontSize = Math.max(10, Math.min(13, Math.round(currentBox.w * 0.22)));
       ctx.font = `bold ${fontSize}px sans-serif`;
 
-      const textMetrics = ctx.measureText(name);
-      const textWidth = textMetrics.width;
-      const padX = 6;
-      const padY = 3;
+      const textMetrics = ctx.measureText(currentBox.shortName);
+      const padX = 5;
+      const padY = 2;
       const badgeH = fontSize + padY * 2;
-      const badgeW = textWidth + padX * 2;
+      const badgeW = textMetrics.width + padX * 2;
 
-      const badgeX = dx + (dw - badgeW) / 2;
-      
-      let badgeY = dy - badgeH + 2; 
-      if (badgeY < 2) {
-        badgeY = dy + 2;
+      // จัดตำแหน่งกึ่งกลางตามแนวแกน X ของกรอบ
+      let badgeX = currentBox.x + (currentBox.w - badgeW) / 2;
+      // ล็อกไม่ให้หลุดขอบซ้าย-ขวาของรูป
+      badgeX = Math.max(2, Math.min(displayWidth - badgeW - 2, badgeX));
+
+      // 3. ตรวจสอบว่าด้านบนมีใบหน้าของคนแถวหลังอยู่หรือไม่
+      // ถ้าด้านบนมีใบหน้าคนอื่นอยู่ในระยะใกล้เคียง ให้ย้ายป้ายลงไปไว้ใต้คางแทน
+      const hasFaceAbove = scaledBoxes.some((other, oIdx) => {
+        if (oIdx === index) return false;
+        const isAbove = other.y + other.h < currentBox.y + 10 && other.y + other.h > currentBox.y - 45;
+        const isHorizOverlap = Math.abs((other.x + other.w / 2) - (currentBox.x + currentBox.w / 2)) < (currentBox.w + other.w) / 2;
+        return isAbove && isHorizOverlap;
+      });
+
+      let badgeY = currentBox.y - badgeH; // ค่าเริ่มต้นไว้ด้านบน
+      if (hasFaceAbove || badgeY < 2) {
+        // ย้ายลงมาติดขอบล่าง (ใต้คาง)
+        badgeY = currentBox.y + currentBox.h;
       }
 
+      // 4. วาดพื้นหลังป้ายชื่อ
       ctx.fillStyle = themeColor;
       if (ctx.roundRect) {
         ctx.beginPath();
@@ -411,10 +439,11 @@ export default function AttendancePage() {
         ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
       }
 
+      // 5. วาดข้อความชื่อที่ตัดให้สั้นแล้ว
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(name, badgeX + badgeW / 2, badgeY + badgeH / 2);
+      ctx.fillText(currentBox.shortName, badgeX + badgeW / 2, badgeY + badgeH / 2);
     });
   }, []);
 
@@ -772,7 +801,7 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database (พร้อมตัดชื่อย่อและสลับป้ายชื่ออัตโนมัติ)
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
@@ -811,35 +840,47 @@ export default function AttendancePage() {
             const scaleY = h / (img.naturalHeight || img.height);
 
             if (Array.isArray(res.boxes) && res.boxes.length > 0) {
-              res.boxes.forEach((box, bIdx) => {
-                const name = res.matches[bIdx] || 'Unknown';
-                const isMatched = name !== 'Unknown';
+              const scaledItems = res.boxes.map((box, bIdx) => ({
+                x: box.x * scaleX,
+                y: box.y * scaleY,
+                w: box.width * scaleX,
+                h: box.height * scaleY,
+                name: res.matches[bIdx] || 'Unknown',
+                shortName: formatShortLabel(res.matches[bIdx] || 'Unknown'),
+              }));
 
-                const dx = box.x * scaleX;
-                const dy = box.y * scaleY;
-                const dw = box.width * scaleX;
-                const dh = box.height * scaleY;
-
+              scaledItems.forEach((item, bIdx) => {
+                const isMatched = item.name !== 'Unknown';
                 const themeColor = isMatched ? '#10b981' : '#ef4444';
                 const borderThickness = Math.max(1.5, Math.round(w / 900));
 
                 ctx.strokeStyle = themeColor;
                 ctx.lineWidth = borderThickness;
-                ctx.strokeRect(dx, dy, dw, dh);
+                ctx.strokeRect(item.x, item.y, item.w, item.h);
 
-                const fontSize = Math.max(10, Math.round(w / 110));
+                const fontSize = Math.max(10, Math.min(13, Math.round(item.w * 0.22)));
                 ctx.font = `bold ${fontSize}px sans-serif`;
 
-                const textWidth = ctx.measureText(name).width;
-                const padX = 6;
-                const padY = 3;
+                const textWidth = ctx.measureText(item.shortName).width;
+                const padX = 5;
+                const padY = 2;
                 const badgeH = fontSize + padY * 2;
                 const badgeW = textWidth + padX * 2;
 
-                const badgeX = dx + (dw - badgeW) / 2;
-                let badgeY = dy - badgeH + 2;
-                if (badgeY < 2) {
-                  badgeY = dy + 2;
+                let badgeX = item.x + (item.w - badgeW) / 2;
+                badgeX = Math.max(2, Math.min(w - badgeW - 2, badgeX));
+
+                // เช็คว่ามีหน้าคนอื่นอยู่เหนือกรอบนี้หรือไม่
+                const hasFaceAbove = scaledItems.some((other, oIdx) => {
+                  if (oIdx === bIdx) return false;
+                  const isAbove = other.y + other.h < item.y + 10 && other.y + other.h > item.y - 45;
+                  const isHorizOverlap = Math.abs((other.x + other.w / 2) - (item.x + item.w / 2)) < (item.w + other.w) / 2;
+                  return isAbove && isHorizOverlap;
+                });
+
+                let badgeY = item.y - badgeH;
+                if (hasFaceAbove || badgeY < 2) {
+                  badgeY = item.y + item.h;
                 }
 
                 ctx.fillStyle = themeColor;
@@ -854,7 +895,7 @@ export default function AttendancePage() {
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(name, badgeX + badgeW / 2, badgeY + badgeH / 2);
+                ctx.fillText(item.shortName, badgeX + badgeW / 2, badgeY + badgeH / 2);
               });
             }
 
@@ -1491,7 +1532,7 @@ export default function AttendancePage() {
         </div>
       )}
 
-      {/* Modal Popup: ยืนยันการลบกรอบใบหน้า (แทน alert/confirm เบราว์เซอร์) */}
+      {/* Modal Popup: ยืนยันการลบกรอบใบหน้า (Custom UI) */}
       {deleteBoxTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[80] animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
