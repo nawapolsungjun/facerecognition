@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       });
       if (existingStudent) {
         return NextResponse.json(
-          { success: false, error: 'รหัสนักศึกษานี้มีอยู่ในระบบแล้ว' },
+          { success: false, error: 'อีเมลหรือรหัสนักศึกษานี้ถูกลงทะเบียนไปแล้ว' },
           { status: 400 }
         );
       }

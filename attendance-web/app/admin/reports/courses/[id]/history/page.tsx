@@ -4,6 +4,29 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+function parseSessionImages(rawImageUrl: string | null | undefined): string[] {
+  if (!rawImageUrl || typeof rawImageUrl !== 'string') return [];
+  const trimmed = rawImageUrl.trim();
+  if (!trimmed || trimmed.includes('[Large Image Base64 Omitted')) return [];
+
+  if (trimmed.startsWith('data:image/')) {
+    if (trimmed.includes('|||')) {
+      return trimmed.split('|||').filter(Boolean);
+    }
+    return [trimmed];
+  }
+
+  if (trimmed.includes('|||')) {
+    return trimmed.split('|||').map((s) => s.trim()).filter(Boolean);
+  }
+
+  if (trimmed.includes(',')) {
+    return trimmed.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  return [trimmed];
+}
+
 export default function AdminCourseHistoryPage() {
   const router = useRouter();
   const params = useParams();
@@ -19,12 +42,13 @@ export default function AdminCourseHistoryPage() {
     semester?: string;
     academicYear?: string;
     joinCode?: string;
-    teacher?: any
+    teacher?: any;
   } | null>(null);
 
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSessionDetail, setSelectedSessionDetail] = useState<any | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const getAuthToken = () => localStorage.getItem('admin_token') || localStorage.getItem('token');
 
@@ -123,7 +147,6 @@ export default function AdminCourseHistoryPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
-        {/* ปุ่มย้อนกลับ */}
         <div>
           <button
             type="button"
@@ -134,7 +157,7 @@ export default function AdminCourseHistoryPage() {
           </button>
         </div>
 
-        {/* การ์ดข้อมูลวิชา (สไตล์เดียวกับหน้าจัดการนักศึกษา) */}
+        {/* การ์ดข้อมูลวิชา */}
         <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
@@ -199,10 +222,8 @@ export default function AdminCourseHistoryPage() {
                 ? new Date(session.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false })
                 : '-';
 
-              const imgList = session.imageUrl
-                ? session.imageUrl.split(',').filter((url: string) => url.trim() !== '')
-                : [];
-              const firstImg = imgList[0] || null;
+              const imageList = parseSessionImages(session.imageUrl);
+              const firstImg = imageList[0] || null;
               const roundNum = session.roundNumber || session.round || (sessions.length - idx);
 
               return (
@@ -220,16 +241,33 @@ export default function AdminCourseHistoryPage() {
                       </span>
                     </div>
 
+                    {/* การ์ดรูปภาพพร้อมคลิกขยายใหญ่ได้ทันที */}
                     <div className="relative rounded-xl overflow-hidden bg-slate-100 border border-slate-100 h-44 mb-4">
                       {firstImg ? (
-                        <>
-                          <img src={firstImg} alt="Session Image" className="w-full h-full object-cover" />
-                          {imgList.length > 1 && (
+                        <div
+                          onClick={() => setPreviewImageUrl(firstImg)}
+                          className="relative w-full h-full cursor-zoom-in group"
+                          title="คลิกเพื่อขยายรูปภาพขนาดใหญ่"
+                        >
+                          <img 
+                            src={firstImg} 
+                            alt="Session Image" 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" 
+                          />
+                          <div className="absolute inset-0 bg-slate-900/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                            <span className="bg-slate-900/80 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow flex items-center gap-1">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                              </svg>
+                              คลิกเพื่อดูภาพขยาย
+                            </span>
+                          </div>
+                          {imageList.length > 1 && (
                             <span className="absolute bottom-2 right-2 bg-slate-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
-                              +{imgList.length - 1} รูปเพิ่ม
+                              +{imageList.length - 1} รูปเพิ่ม
                             </span>
                           )}
-                        </>
+                        </div>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-400 font-bold text-xs bg-slate-50">
                           ไม่มีรูปภาพ
@@ -277,7 +315,6 @@ export default function AdminCourseHistoryPage() {
       {selectedSessionDetail && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
-            {/* Header ของ Modal */}
             <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-black text-lg text-slate-800">
@@ -296,28 +333,35 @@ export default function AdminCourseHistoryPage() {
               </button>
             </div>
 
-            {/* แสดงรูปภาพประกอบถ้ามี */}
+            {/* แสดงรูปภาพประกอบถ้ามี พร้อมคลิกดูขยายใหญ่ */}
             {selectedSessionDetail.imageUrl && (
               <div className="mb-6">
                 <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
-                  รูปภาพประกอบการเช็คชื่อ
+                  รูปภาพประกอบการเช็คชื่อ (คลิกเพื่อขยาย)
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedSessionDetail.imageUrl
-                    .split(',')
-                    .filter((url: string) => url.trim() !== '')
-                    .map((imgUrl: string, idx: number) => (
-                      <div
-                        key={idx}
-                        className="rounded-xl overflow-hidden border border-slate-200/60 bg-slate-900 h-44"
-                      >
-                        <img
-                          src={imgUrl.trim()}
-                          alt={`รูปถ่ายการเช็คชื่อ #${idx + 1}`}
-                          className="w-full h-full object-contain"
-                        />
+                  {parseSessionImages(selectedSessionDetail.imageUrl).map((imgUrl: string, idx: number) => (
+                    <div
+                      key={idx}
+                      onClick={() => setPreviewImageUrl(imgUrl.trim())}
+                      className="relative rounded-xl overflow-hidden border border-slate-200/60 bg-slate-900 min-h-[180px] flex items-center justify-center cursor-zoom-in group"
+                      title="คลิกเพื่อดูภาพขยายขนาดใหญ่"
+                    >
+                      <img
+                        src={imgUrl.trim()}
+                        alt={`รูปถ่ายการเช็คชื่อ #${idx + 1}`}
+                        className="max-h-72 w-auto max-w-full object-contain block rounded-lg group-hover:opacity-90 transition-opacity"
+                      />
+                      <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                        <span className="bg-slate-900/80 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg backdrop-blur-sm shadow flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                          </svg>
+                          คลิกขยาย
+                        </span>
                       </div>
-                    ))}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -372,6 +416,44 @@ export default function AdminCourseHistoryPage() {
                   ไม่มีรายการเช็คชื่อรายบุคคลในรอบนี้
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal: ขยายรูปภาพผลการสแกนขนาดเต็มจอ */}
+      {previewImageUrl && (
+        <div
+          className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div
+            className="relative max-w-5xl w-full max-h-[94vh] bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col p-4 md:p-6 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center pb-3 mb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h3 className="text-sm md:text-base font-black text-slate-800">
+                  รูปภาพผลการสแกนใบหน้า (ขนาดขยาย)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="text-slate-400 hover:text-slate-700 text-2xl font-bold p-1 cursor-pointer"
+                title="ปิด"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="relative overflow-auto max-h-[82vh] flex items-center justify-center rounded-2xl bg-slate-900 border border-slate-200 p-2">
+              <img
+                src={previewImageUrl}
+                alt="Enlarged Preview"
+                className="max-h-[78vh] w-auto max-w-full object-contain block rounded-lg shadow-lg"
+              />
             </div>
           </div>
         </div>

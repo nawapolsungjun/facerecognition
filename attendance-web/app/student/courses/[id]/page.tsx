@@ -2,7 +2,6 @@
 'use client';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,19 +12,6 @@ interface UserProfile {
   lastName?: string;
   name?: string;
   role?: string;
-}
-
-interface AttendanceRecord {
-  id?: string;
-  date?: string;
-  createdAt?: string;
-  time?: string;
-  status: 'มาเรียน' | 'มาสาย' | 'ลา' | 'รอตรวจสอบ' | 'ขาดเรียน' | string;
-  timeSlot?: string;
-  remark?: string;
-  sessionType?: string;
-  weekNumber?: number;
-  week?: number;
 }
 
 interface FriendProfile {
@@ -43,7 +29,6 @@ interface CourseData {
   section?: string;
   semester?: string;
   academicYear?: string;
-  attendance?: AttendanceRecord[];
   friends?: FriendProfile[];
 }
 
@@ -54,28 +39,91 @@ export default function StudentCourseDetailPage() {
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [courseData, setCourseData] = useState<CourseData | null>(null);
+  const [courseWeeks, setCourseWeeks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'attendance' | 'friends'>('attendance');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  const fetchDetails = useCallback(async (studentId: string, token: string) => {
+  const fetchDetails = useCallback(async (studentId: string, token: string, studentCode: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/student/courses/details?courseId=${courseId}&studentId=${studentId}&_t=${Date.now()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        cache: 'no-store'
-      });
+      // 1. ดึงข้อมูลวิชา และ 2. ดึงประวัติการเข้าเรียนทั้งหมดของวิชานี้ (ชุดเดียวกับฝั่งอาจารย์)
+      const [resDetails, resHistory] = await Promise.all([
+        fetch(`/api/student/courses/details?courseId=${courseId}&studentId=${studentId}&_t=${Date.now()}`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          cache: 'no-store'
+        }),
+        fetch(`/api/attendance/history/${courseId}`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          cache: 'no-store'
+        }).catch(() => null)
+      ]);
 
-      const json = await res.json();
+      const json = await resDetails.json();
       if (json.success && json.data) {
         setCourseData(json.data);
       } else {
-        console.warn('Load course error:', json);
         alert(json.error || 'ไม่สามารถโหลดข้อมูลรายวิชาได้');
         router.push('/student/dashboard');
+        return;
+      }
+
+      // จัดกลุ่มประวัติการเข้าเรียนเป็น 15 สัปดาห์/คาบเรียน
+      if (resHistory && resHistory.ok) {
+        const historyJson = await resHistory.json();
+        if (historyJson.success && Array.isArray(historyJson.data)) {
+          const sorted = [...historyJson.data].sort((a: any, b: any) => {
+            return new Date(a.date || a.createdAt).getTime() - new Date(b.date || b.createdAt).getTime();
+          });
+
+          const uniqueSlots = new Map<string, any>();
+
+          for (const sess of sorted) {
+            const d = new Date(sess.date || sess.createdAt);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const dateStr = `${y}-${m}-${day}`;
+
+            let timeSlot = sess.timeSlot || '';
+            const fullText = `${sess.note || ''} ${sess.timeSlot || ''}`;
+            const timeMatch = fullText.match(/(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+
+            if (timeMatch) {
+              timeSlot = `${timeMatch[1]}-${timeMatch[2]}`.replace(/\s+/g, '');
+            } else {
+              const hr = d.getHours();
+              if (hr < 12) timeSlot = '09:00-12:00';
+              else if (hr < 17) timeSlot = '13:00-16:00';
+              else timeSlot = '17:00-20:00';
+            }
+
+            const isComp = sess.sessionType === 'COMPENSATION' || fullText.includes('สอนชดเชย');
+            const slotKey = `${dateStr}_${timeSlot}_${isComp ? 'COMPENSATION' : 'REGULAR'}`;
+
+            if (!uniqueSlots.has(slotKey)) {
+              uniqueSlots.set(slotKey, {
+                ...sess,
+                slotKey,
+                dateStr,
+                timeSlot,
+                isComp,
+                allSessions: [sess]
+              });
+            } else {
+              const existing = uniqueSlots.get(slotKey);
+              existing.allSessions.push(sess);
+              uniqueSlots.set(slotKey, {
+                ...existing,
+                ...sess,
+                allSessions: existing.allSessions
+              });
+            }
+          }
+
+          setCourseWeeks(Array.from(uniqueSlots.values()));
+        }
       }
     } catch (err) {
       console.error('Fetch course detail error:', err);
@@ -107,21 +155,20 @@ export default function StudentCourseDetailPage() {
       setUser({ ...parsedUser, displayName } as UserProfile);
 
       if (parsedUser.id) {
-        fetchDetails(parsedUser.id, token);
+        fetchDetails(String(parsedUser.id), token, String(parsedUser.studentCode || ''));
       }
     } catch {
       router.replace('/student/login');
     }
   }, [fetchDetails, router]);
 
-  // สกัดเอาเฉพาะใจความสำคัญของหมายเหตุ ตัดข้อความเวลาและแท็กรอบที่ซ้ำซ้อนออก
   const cleanDisplayRemark = (str: string) => {
     if (!str) return '';
-    const matchEdit = str.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
+    const matchEdit = str.match(/\(แก้ไข(โดยอาจารย์\vert{}โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
     const editTimestamp = matchEdit ? matchEdit[0] : '';
 
     let base = str
-      .replace(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/gi, '')
+      .replace(/\(แก้ไข(โดยอาจารย์\vert{}โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/gi, '')
       .replace(/\(แก้ไขเวลา[^)]*?\)/gi, '')
       .replace(/\[\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}(\s*น\.)?\s*\]/gi, '')
       .replace(/\(\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}(\s*น\.)?\s*\)/gi, '')
@@ -140,29 +187,130 @@ export default function StudentCourseDetailPage() {
     return base;
   };
 
-  // กรองและเรียงลำดับรายการตามวันที่/เวลา
-  const studentAttendanceList = useMemo(() => {
-    if (!courseData?.attendance) return [];
+  // รวมและจัดกลุ่มประวัติการเช็คชื่อตามคาบเรียนจริง 15 สัปดาห์
+  const studentWeeklyAttendance = useMemo(() => {
+    if (!user) return [];
 
-    return [...courseData.attendance].sort((a, b) => {
-      const dateA = new Date(a.date || a.createdAt || 0).getTime();
-      const dateB = new Date(b.date || b.createdAt || 0).getTime();
-      return dateA - dateB;
-    });
-  }, [courseData]);
+    const myId = String(user.id);
+    const myCode = String(user.studentCode || '').trim();
+    const totalWeeks = 15;
+    const weeksList = [];
 
+    for (let i = 0; i < totalWeeks; i++) {
+      const weekIndex = i + 1;
+      const weekSlot = courseWeeks[i] || null;
+
+      if (weekSlot) {
+        const allSessionsInWeek = weekSlot.allSessions || [weekSlot];
+        const studentRecordsInWeek: any[] = [];
+
+        for (const s of allSessionsInWeek) {
+          const list = s.records || s.attendances || [];
+          const found = list.find((r: any) =>
+            String(r.studentId) === myId ||
+            String(r.id) === myId ||
+            String(r.studentCode || '').trim() === myCode
+          );
+          if (found) {
+            studentRecordsInWeek.push(found);
+          }
+        }
+
+        let finalStatus = 'ขาดเรียน';
+        let rawRemark = '';
+
+        if (studentRecordsInWeek.length > 0) {
+          const latestRecord = studentRecordsInWeek[studentRecordsInWeek.length - 1];
+          rawRemark = latestRecord.remark || '';
+
+          // หากมีสถานะที่อาจารย์แก้ไขหรือระบุไว้ชัดเจน
+          const manualStatus = studentRecordsInWeek.find((r: any) => ['ลา', 'มาสาย', 'มาเรียน'].includes(r.status));
+
+          if (manualStatus) {
+            finalStatus = manualStatus.status;
+          } else {
+            const patternArray = studentRecordsInWeek.map((att: any) => {
+              if (att && att.status !== 'ขาดเรียน' && att.status !== 'รอตรวจสอบ') {
+                return 1;
+              }
+              return 0;
+            });
+            const patternStr = patternArray.join('');
+
+            if (patternArray.length === 3) {
+              if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
+              else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
+              else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 2) {
+              if (patternStr === '11') finalStatus = 'มาเรียน';
+              else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
+              else if (patternStr === '01') finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 1) {
+              finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
+            }
+          }
+        }
+
+        const matchEditTime = rawRemark.match(/\(แก้ไข(โดยอาจารย์\vert{}โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
+        const editTimestamp = matchEditTime ? matchEditTime[0] : '';
+        const cleanedBase = cleanDisplayRemark(rawRemark);
+
+        let finalRemark = cleanedBase;
+        if (editTimestamp && !finalRemark.includes(editTimestamp)) {
+          finalRemark = finalRemark ? `${finalRemark} ${editTimestamp}` : editTimestamp;
+        }
+
+        const sessionDate = weekSlot.createdAt || weekSlot.date;
+
+        weeksList.push({
+          weekNumber: weekIndex,
+          isRecorded: true,
+          date: sessionDate,
+          timeLabel: weekSlot.timeSlot || '',
+          isComp: weekSlot.isComp || weekSlot.sessionType === 'COMPENSATION',
+          status: finalStatus,
+          remark: finalRemark.trim(),
+          recordTime: sessionDate
+        });
+      } else {
+        weeksList.push({
+          weekNumber: weekIndex,
+          isRecorded: false,
+          date: null,
+          timeLabel: '',
+          isComp: false,
+          status: 'ยังไม่บันทึก',
+          remark: '',
+          recordTime: null
+        });
+      }
+    }
+
+    return weeksList;
+  }, [user, courseWeeks]);
+
+  // สรุปยอดตามเกณฑ์: สาย 2 ครั้ง = ขาด 1 ครั้ง, ลา 2 ครั้ง = ขาด 1 ครั้ง
   const summary = useMemo(() => {
-    const total = studentAttendanceList.length;
-    const present = studentAttendanceList.filter((a) => a.status === 'มาเรียน').length;
-    const late = studentAttendanceList.filter((a) => a.status === 'มาสาย').length;
-    const leave = studentAttendanceList.filter((a) => a.status === 'ลา').length;
-    const pending = studentAttendanceList.filter((a) => a.status === 'รอตรวจสอบ').length;
-    const absent = studentAttendanceList.filter((a) => a.status === 'ขาดเรียน').length;
+    const recordedList = studentWeeklyAttendance.filter((a) => a.isRecorded);
+    const total = recordedList.length;
+    const present = recordedList.filter((a) => a.status === 'มาเรียน').length;
+    const late = recordedList.filter((a) => a.status === 'มาสาย').length;
+    const leave = recordedList.filter((a) => a.status === 'ลา').length;
+    const pending = recordedList.filter((a) => a.status === 'รอตรวจสอบ').length;
+    const absent = recordedList.filter((a) => a.status === 'ขาดเรียน').length;
 
-    const attendancePercentage = total > 0 ? Math.round(((present + late) / total) * 100) : 100;
+    const penaltyFromLate = Math.floor(late / 2);
+    const penaltyFromLeave = Math.floor(leave / 2);
+    const effectiveAbsences = absent + penaltyFromLate + penaltyFromLeave;
+
+    const actualAttended = Math.max(0, total - effectiveAbsences);
+    const attendancePercentage = total > 0 ? Math.round((actualAttended / total) * 100) : 100;
+
     const MAX_ALLOWED_ABSENT = 3;
-    const remainingAbsentQuota = Math.max(0, MAX_ALLOWED_ABSENT - absent);
-    const isExamEligible = absent <= MAX_ALLOWED_ABSENT;
+    const remainingAbsentQuota = Math.max(0, MAX_ALLOWED_ABSENT - effectiveAbsences);
+    const isExamEligible = attendancePercentage >= 80;
 
     return {
       total,
@@ -176,7 +324,7 @@ export default function StudentCourseDetailPage() {
       remainingAbsentQuota,
       isExamEligible
     };
-  }, [studentAttendanceList]);
+  }, [studentWeeklyAttendance]);
 
   const filteredAndSortedFriends = useMemo(() => {
     if (!courseData?.friends) return [];
@@ -246,7 +394,6 @@ export default function StudentCourseDetailPage() {
       </nav>
 
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-8 space-y-6">
-        {/* ปุ่มย้อนกลับ */}
         <div>
           <button
             type="button"
@@ -300,7 +447,7 @@ export default function StudentCourseDetailPage() {
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                   <span>สถานะ: มีสิทธิ์สอบ</span>
                   <span className="text-slate-400 font-normal">|</span>
-                  <span className="text-emerald-700 font-normal">ขาดได้อีก {summary.remainingAbsentQuota} ครั้ง</span>
+                  <span className="text-emerald-700 font-bold">ขาดได้อีก {summary.remainingAbsentQuota} ครั้ง</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
@@ -345,7 +492,7 @@ export default function StudentCourseDetailPage() {
               <table className="w-full text-center border-collapse">
                 <thead>
                   <tr className="bg-slate-50/90 border-b border-slate-200/80">
-                    <th className="p-4 text-sm font-black text-slate-700 w-24 text-center whitespace-nowrap">ครั้งที่</th>
+                    <th className="p-4 text-sm font-black text-slate-700 w-24 text-center whitespace-nowrap">สัปดาห์ที่</th>
                     <th className="p-4 text-sm font-black text-slate-700 w-44 text-center whitespace-nowrap">วันที่และเวลา</th>
                     <th className="p-4 text-sm font-black text-slate-700 w-40 text-center whitespace-nowrap">รายละเอียด</th>
                     <th className="p-4 text-sm font-black text-slate-700 text-center min-w-[200px] whitespace-nowrap">หมายเหตุ</th>
@@ -353,30 +500,24 @@ export default function StudentCourseDetailPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {studentAttendanceList.length > 0 ? (
-                    studentAttendanceList.map((a, index) => {
-                      const isComp = (a.remark || '').includes('[สอนชดเชย]') || a.sessionType === 'COMPENSATION';
-                      const timeStr = a.time
-                        ? new Date(a.time).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
-                        : '';
-                      const displayRemark = cleanDisplayRemark(a.remark || '');
-
+                  {studentWeeklyAttendance.filter(a => a.isRecorded).length > 0 ? (
+                    studentWeeklyAttendance.filter(a => a.isRecorded).map((a) => {
                       return (
-                        <tr key={a.id || index} className="hover:bg-slate-50/60 transition-colors">
+                        <tr key={a.weekNumber} className="hover:bg-slate-50/60 transition-colors">
                           <td className="p-4 text-xs font-bold text-slate-700 text-center align-middle">
-                            {index + 1}
+                            {a.weekNumber}
                           </td>
                           <td className="p-4 text-xs font-bold text-slate-700 text-center whitespace-nowrap align-middle">
-                            <div>{new Date(a.date || a.createdAt || Date.now()).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</div>
-                            {timeStr && <div className="text-[11px] text-slate-400 font-medium mt-0.5">{timeStr} น.</div>}
+                            <div>{new Date(a.date || Date.now()).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</div>
+                            {a.timeLabel && <div className="text-[11px] text-slate-400 font-medium mt-0.5">{a.timeLabel} น.</div>}
                           </td>
                           <td className="p-4 text-xs font-bold text-slate-700 text-center align-middle">
-                            {isComp ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'}
+                            {a.isComp ? 'คาบสอนชดเชย' : 'คาบเรียนปกติ'}
                           </td>
                           <td className="p-4 text-xs text-slate-600 align-middle">
-                            {displayRemark ? (
+                            {a.remark ? (
                               <span className="text-xs text-slate-700 leading-relaxed font-medium">
-                                {displayRemark}
+                                {a.remark}
                               </span>
                             ) : (
                               <span className="text-xs text-slate-300 italic">
@@ -483,7 +624,7 @@ export default function StudentCourseDetailPage() {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={5} className="text-center p-14 text-slate-400 font-bold text-xs">
+                        <td colSpan={5} className="p-14 text-center text-slate-400 font-bold text-xs">
                           {searchTerm ? 'ไม่พบข้อมูลที่ตรงกับคำค้นหา' : 'ยังไม่มีนักศึกษาเข้าร่วมรายวิชานี้'}
                         </td>
                       </tr>

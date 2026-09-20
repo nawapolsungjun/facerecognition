@@ -117,6 +117,7 @@ export default function AttendancePage() {
   const [previousRoundAttendance, setPreviousRoundAttendance] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [allDateSessions, setAllDateSessions] = useState<any[]>([]);
+  const [uniqueTeachingSlotsCount, setUniqueTeachingSlotsCount] = useState<number>(0);
   const [statusFilter, setStatusFilter] = useState<'ทั้งหมด' | 'มาเรียน' | 'มาสาย' | 'รอตรวจสอบ' | 'ขาดเรียน'>('ทั้งหมด');
   const [zoomedImageIdx, setZoomedImageIdx] = useState<number | null>(null);
 
@@ -213,6 +214,34 @@ export default function AttendancePage() {
         }
       }
 
+      // ดึงประวัติทั้งหมดของวิชามานับจำนวนคาบเรียนที่แท้จริง (จัดกลุ่ม date + timeSlot + sessionType)
+      const resAllHistory = await fetch(`/api/attendance/history/${courseId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(() => null);
+
+      if (resAllHistory && resAllHistory.ok) {
+        const allHistoryJson = await resAllHistory.json();
+        if (allHistoryJson?.success && Array.isArray(allHistoryJson.data)) {
+          const uniqueSlotsSet = new Set<string>();
+          allHistoryJson.data.forEach((item: any) => {
+            const d = item.date || (item.createdAt ? item.createdAt.split('T')[0] : '');
+            let t = item.timeSlot || '';
+            if (!t && item.note) {
+              const match = item.note.match(/\[(\d{1,2}:\d{2}-\d{1,2}:\d{2})\]/);
+              if (match) t = match[1];
+            }
+            const st = item.sessionType || (item.note?.includes('สอนชดเชย') ? 'COMPENSATION' : 'REGULAR');
+            if (d && t) {
+              uniqueSlotsSet.add(`${d}_${t}_${st}`);
+            } else if (item.id) {
+              uniqueSlotsSet.add(String(item.id));
+            }
+          });
+          setUniqueTeachingSlotsCount(uniqueSlotsSet.size);
+        }
+      }
+
+      // ดึงประวัติเฉพาะวันที่เลือก
       const resHistory = await fetch(
         `/api/attendance/history/${courseId}?date=${selectedDate}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
@@ -295,6 +324,25 @@ export default function AttendancePage() {
 
   const isRoundLimitReached = dailyRoundNumber > 3;
 
+  // ตรวจสอบว่าคาบเรียนปัจจุบันเคยมีการบันทึกประวัติไว้แล้วหรือไม่ (เพื่ออนุญาตให้เช็ครอบ 2 หรือ 3 ของคาบเดิมได้)
+  const isCurrentSlotAlreadyRecorded = useMemo(() => {
+    const currentSlotStr = `${startTime}-${endTime}`;
+    return allDateSessions.some((session: any) => {
+      const matchType = session.sessionType
+        ? session.sessionType === sessionType
+        : session.note?.includes(sessionType === 'COMPENSATION' ? 'สอนชดเชย' : 'คาบปกติ');
+      let slot = session.timeSlot || '';
+      if (!slot && session.note) {
+        const match = session.note.match(/\[(\d{1,2}:\d{2}-\d{1,2}:\d{2})\]/);
+        if (match) slot = match[1];
+      }
+      return matchType && (slot === currentSlotStr || slot.includes(currentSlotStr));
+    });
+  }, [allDateSessions, sessionType, startTime, endTime]);
+
+  // ครบ 15 คาบ และไม่ใช่คาบเดิมที่มีอยู่แล้ว (บล็อกไม่ให้เปิดคาบใหม่)
+  const isCourseCompleted = uniqueTeachingSlotsCount >= 15 && !isCurrentSlotAlreadyRecorded;
+
   // ตรวจสอบการชนกันของเวลา
   const timeSlotConflict = useMemo(() => {
     const currentSlotStr = `${startTime}-${endTime}`;
@@ -353,9 +401,7 @@ export default function AttendancePage() {
   // ฟังก์ชันย่อชื่อให้สั้นเพื่อไม่ให้ป้ายยาวเกินกรอบ
   const formatShortLabel = (fullName: string) => {
     if (!fullName || fullName === 'Unknown') return 'Unknown';
-    // 1. ตัดคำนำหน้า
     let cleaned = fullName.replace(/^(นาย|นางสาว|นาง|น\.ส\.)\s*/, '').trim();
-    // 2. ตัดเอาเฉพาะชื่อตัวแรก (ตัดนามสกุลออกบนรูปภาพ)
     const parts = cleaned.split(/\s+/);
     return parts[0] || fullName;
   };
@@ -379,7 +425,6 @@ export default function AttendancePage() {
     const scaleX = displayWidth / naturalWidth;
     const scaleY = displayHeight / naturalHeight;
 
-    // คำนวณพิกัดที่ปรับสเกลแล้วของทุกกล่องไว้ล่วงหน้า เพื่อใช้ตรวจจับการซ้อนทับ
     const scaledBoxes = boxes.map((box, idx) => ({
       x: box.x * scaleX,
       y: box.y * scaleY,
@@ -394,12 +439,10 @@ export default function AttendancePage() {
       const themeColor = isMatched ? '#10b981' : '#ef4444';
       const borderThickness = Math.max(1.5, Math.round(displayWidth / 900));
 
-      // 1. วาดกรอบใบหน้า
       ctx.strokeStyle = themeColor;
       ctx.lineWidth = borderThickness;
       ctx.strokeRect(currentBox.x, currentBox.y, currentBox.w, currentBox.h);
 
-      // 2. ปรับขนาดฟอนต์ให้พอดีกับกรอบ (ไม่ใหญ่จนล้น)
       const fontSize = Math.max(10, Math.min(13, Math.round(currentBox.w * 0.22)));
       ctx.font = `bold ${fontSize}px sans-serif`;
 
@@ -409,13 +452,9 @@ export default function AttendancePage() {
       const badgeH = fontSize + padY * 2;
       const badgeW = textMetrics.width + padX * 2;
 
-      // จัดตำแหน่งกึ่งกลางตามแนวแกน X ของกรอบ
       let badgeX = currentBox.x + (currentBox.w - badgeW) / 2;
-      // ล็อกไม่ให้หลุดขอบซ้าย-ขวาของรูป
       badgeX = Math.max(2, Math.min(displayWidth - badgeW - 2, badgeX));
 
-      // 3. ตรวจสอบว่าด้านบนมีใบหน้าของคนแถวหลังอยู่หรือไม่
-      // ถ้าด้านบนมีใบหน้าคนอื่นอยู่ในระยะใกล้เคียง ให้ย้ายป้ายลงไปไว้ใต้คางแทน
       const hasFaceAbove = scaledBoxes.some((other, oIdx) => {
         if (oIdx === index) return false;
         const isAbove = other.y + other.h < currentBox.y + 10 && other.y + other.h > currentBox.y - 45;
@@ -423,13 +462,11 @@ export default function AttendancePage() {
         return isAbove && isHorizOverlap;
       });
 
-      let badgeY = currentBox.y - badgeH; // ค่าเริ่มต้นไว้ด้านบน
+      let badgeY = currentBox.y - badgeH;
       if (hasFaceAbove || badgeY < 2) {
-        // ย้ายลงมาติดขอบล่าง (ใต้คาง)
         badgeY = currentBox.y + currentBox.h;
       }
 
-      // 4. วาดพื้นหลังป้ายชื่อ
       ctx.fillStyle = themeColor;
       if (ctx.roundRect) {
         ctx.beginPath();
@@ -439,7 +476,6 @@ export default function AttendancePage() {
         ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
       }
 
-      // 5. วาดข้อความชื่อที่ตัดให้สั้นแล้ว
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -449,6 +485,11 @@ export default function AttendancePage() {
 
   // ฟังก์ชันสแกนแบบ High-Speed Batch
   const handleScanAttendance = async () => {
+    if (isCourseCompleted) {
+      showToast('error', 'ครบกำหนด 15 สัปดาห์แล้ว', 'รายวิชานี้เช็คชื่อครบตามเกณฑ์ 15 สัปดาห์เรียบร้อยแล้ว ไม่สามารถสแกนเพิ่มได้');
+      return;
+    }
+
     if (timeSlotConflict.hasConflict) {
       showToast('error', 'ไม่สามารถสแกนได้', `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว กรุณาเลือกช่วงเวลาหรือประเภทคาบเรียนที่ถูกต้อง`);
       return;
@@ -528,7 +569,6 @@ export default function AttendancePage() {
           });
         });
       } else {
-        // Fallback: ถ้าเอนด์พอยต์ batch ไม่พร้อม ให้สลับไปยิงทีละไฟล์
         for (let i = 0; i < preparedFiles.length; i++) {
           const singleFormData = new FormData();
           singleFormData.append('file', preparedFiles[i]);
@@ -634,7 +674,6 @@ export default function AttendancePage() {
 
     if (clickedBoxIndex > -1) {
       const targetName = currentResult.matches[clickedBoxIndex] || 'Unknown';
-      // เปิด Custom Modal ยืนยันการลบแทนการใช้ window.confirm
       setDeleteBoxTarget({
         imgIndex,
         boxIndex: clickedBoxIndex,
@@ -665,7 +704,6 @@ export default function AttendancePage() {
 
     setScanResults(updatedScanResults);
 
-    // คำนวณรายชื่อนักศึกษาที่ตรวจพบใหม่
     const allRemainingNames = new Set<string>();
     updatedScanResults.forEach((res) => {
       res.matches.forEach((matchedName) => {
@@ -677,12 +715,10 @@ export default function AttendancePage() {
     setDeleteBoxTarget(null);
     showToast('success', 'ลบกรอบเรียบร้อย', `ลบกรอบ ${displayName} ออกจากผลการสแกนแล้ว`);
 
-    // วาด Canvas ในมุมมองขยายใหม่ทันที
     if (zoomCanvasRef.current && zoomImgRef.current) {
       drawBoxes(zoomImgRef.current, zoomCanvasRef.current, newBoxes, newMatches);
     }
 
-    // วาด Canvas บนหน้ารายการหลักด้วย
     const mainCanvas = canvasRefs.current[imgIndex];
     const mainImg = imageRefs.current[imgIndex];
     if (mainCanvas && mainImg) {
@@ -690,7 +726,6 @@ export default function AttendancePage() {
     }
   };
 
-  // เปิด Modal แก้ไขสถานะและกำหนดให้ newStatus = currentStatus (เหมือน Admin)
   const handleOpenStatusModal = (item: any) => {
     const currentStatus = item.finalStatus || 'มาเรียน';
 
@@ -801,7 +836,7 @@ export default function AttendancePage() {
     });
   }, [attendanceEvaluationList, statusFilter]);
 
-  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database (พร้อมตัดชื่อย่อและสลับป้ายชื่ออัตโนมัติ)
+  // ฟังก์ชันวาดกรอบลงรูปภาพเพื่อบันทึกลง Database
   const generateImagesWithBurnedBoxes = async (): Promise<string[]> => {
     if (scanResults.length === 0) return [];
 
@@ -870,7 +905,6 @@ export default function AttendancePage() {
                 let badgeX = item.x + (item.w - badgeW) / 2;
                 badgeX = Math.max(2, Math.min(w - badgeW - 2, badgeX));
 
-                // เช็คว่ามีหน้าคนอื่นอยู่เหนือกรอบนี้หรือไม่
                 const hasFaceAbove = scaledItems.some((other, oIdx) => {
                   if (oIdx === bIdx) return false;
                   const isAbove = other.y + other.h < item.y + 10 && other.y + other.h > item.y - 45;
@@ -916,6 +950,12 @@ export default function AttendancePage() {
   };
 
   const handleConfirmAndSave = async () => {
+    if (isCourseCompleted) {
+      setShowConfirmModal(false);
+      showToast('error', 'ครบกำหนด 15 สัปดาห์แล้ว', 'รายวิชานี้เช็คชื่อครบตามเกณฑ์ 15 สัปดาห์เรียบร้อยแล้ว ไม่สามารถบันทึกเพิ่มได้');
+      return;
+    }
+
     if (timeSlotConflict.hasConflict) {
       setShowConfirmModal(false);
       showToast('error', 'ไม่สามารถบันทึกได้', `ช่วงเวลา ${timeSlotConflict.timeSlot} น. มีการบันทึกของ "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว ไม่สามารถบันทึกซ้ำช่วงเวลาเดียวกันได้`);
@@ -1079,6 +1119,23 @@ export default function AttendancePage() {
         </div>
 
         <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/80 w-full mb-6 space-y-5">
+
+          {/* แจ้งเตือนเมื่อครบ 15 สัปดาห์/คาบเรียน */}
+          {isCourseCompleted && (
+            <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 flex items-start gap-3.5 animate-in fade-in duration-200">
+              <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 font-black text-base shadow-sm">
+                ✓
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-black text-emerald-950">
+                  รายวิชานี้ได้ทำการเช็คชื่อครบทั้ง 15 สัปดาห์แล้ว
+                </h4>
+                <p className="text-xs text-emerald-800 mt-0.5 leading-relaxed font-medium">
+                  บันทึกการเข้าเรียนครบตามเกณฑ์ของหลักสูตรเรียบร้อยแล้ว (สะสมครบ 15 คาบเรียน) ระบบได้ปิดการสแกนเช็คชื่อเพิ่มสำหรับคาบใหม่ คุณสามารถตรวจสอบและพิมพ์แบบฟอร์มได้ที่เมนู &quot;รายงานการเข้าเรียน&quot;
+                </p>
+              </div>
+            </div>
+          )}
 
           {timeSlotConflict.hasConflict && (
             <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 flex items-start gap-3.5 animate-in fade-in duration-200">
@@ -1250,9 +1307,9 @@ export default function AttendancePage() {
             <input
               type="file" multiple accept="image/*"
               onChange={handleFileChange}
-              disabled={isRoundLimitReached}
+              disabled={isRoundLimitReached || isCourseCompleted}
               className={`block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold transition-all border border-slate-200 rounded-xl p-1 ${
-                isRoundLimitReached
+                isRoundLimitReached || isCourseCompleted
                   ? 'opacity-50 cursor-not-allowed file:bg-slate-200 file:text-slate-400 bg-slate-50'
                   : 'cursor-pointer file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 bg-white'
               }`}
@@ -1261,35 +1318,41 @@ export default function AttendancePage() {
 
           <button
             onClick={handleScanAttendance}
-            disabled={isLoading || !selectedFiles || timeSlotConflict.hasConflict || isRoundLimitReached}
+            disabled={isLoading || !selectedFiles || timeSlotConflict.hasConflict || isRoundLimitReached || isCourseCompleted}
             className="w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm shadow-xs disabled:bg-slate-200 disabled:text-slate-400 transition-all cursor-pointer"
           >
-            {timeSlotConflict.hasConflict
-              ? 'ไม่สามารถสแกนได้เนื่องจากเวลาชนกัน'
-              : isRoundLimitReached
-                ? 'เกินขีดจำกัดการเช็คชื่อ (สูงสุด 3 รอบต่อคาบ)'
-                : isLoading
-                  ? 'กำลังประมวลผลใบหน้า...'
-                  : 'เริ่มสแกนใบหน้า'}
+            {isCourseCompleted
+              ? 'ครบกำหนดการเข้าเรียน 15 สัปดาห์แล้ว (ปิดการสแกน)'
+              : timeSlotConflict.hasConflict
+                ? 'ไม่สามารถสแกนได้เนื่องจากเวลาชนกัน'
+                : isRoundLimitReached
+                  ? 'เกินขีดจำกัดการเช็คชื่อ (สูงสุด 3 รอบต่อคาบ)'
+                  : isLoading
+                    ? 'กำลังประมวลผลใบหน้า...'
+                    : 'เริ่มสแกนใบหน้า'}
           </button>
 
           <div className={`text-center py-2.5 px-4 rounded-xl font-bold text-xs border ${
-            timeSlotConflict.hasConflict || isRoundLimitReached
-              ? 'bg-amber-50 text-amber-800 border-amber-200'
-              : status.includes('ข้อผิดพลาด')
-                ? 'bg-red-50 text-red-600 border-red-100'
-                : 'bg-slate-50 text-slate-700 border-slate-200'
+            isCourseCompleted
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : timeSlotConflict.hasConflict || isRoundLimitReached
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : status.includes('ข้อผิดพลาด')
+                  ? 'bg-red-50 text-red-600 border-red-100'
+                  : 'bg-slate-50 text-slate-700 border-slate-200'
             }`}>
-            {timeSlotConflict.hasConflict
-              ? `แจ้งเตือน: ช่วงเวลานี้มีการบันทึก "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว`
-              : isRoundLimitReached
-                ? `แจ้งเตือน: คาบเรียนนี้ถูกบันทึกการเช็คชื่อครบโควต้า 3 รอบแล้ว`
-                : status}
+            {isCourseCompleted
+              ? 'แจ้งเตือน: รายวิชานี้มีประวัติการเช็คชื่อครบ 15 สัปดาห์เรียบร้อยแล้ว'
+              : timeSlotConflict.hasConflict
+                ? `แจ้งเตือน: ช่วงเวลานี้มีการบันทึก "${timeSlotConflict.conflictedTypeLabel}" อยู่แล้ว`
+                : isRoundLimitReached
+                  ? `แจ้งเตือน: คาบเรียนนี้ถูกบันทึกการเช็คชื่อครบโควต้า 3 รอบแล้ว`
+                  : status}
           </div>
         </div>
 
         {/* ตารางแสดงผลการตรวจ */}
-        {scanResults.length > 0 && !isRoundLimitReached && (
+        {scanResults.length > 0 && !isRoundLimitReached && !isCourseCompleted && (
           <div className="w-full bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80 mb-6 animate-in fade-in duration-300">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 pb-3 border-b border-slate-100">
               <div>
@@ -1415,18 +1478,20 @@ export default function AttendancePage() {
 
             <button
               onClick={() => setShowConfirmModal(true)}
-              disabled={timeSlotConflict.hasConflict}
+              disabled={timeSlotConflict.hasConflict || isCourseCompleted}
               className="w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white py-3.5 rounded-xl font-bold text-sm shadow-xs transition-all cursor-pointer disabled:bg-slate-300 disabled:cursor-not-allowed"
             >
-              {timeSlotConflict.hasConflict
-                ? 'ไม่สามารถบันทึกได้เนื่องจากเวลาชนกัน'
-                : `ยืนยันการบันทึกเข้าเรียนรอบที่ ${dailyRoundNumber}`}
+              {isCourseCompleted
+                ? 'ครบกำหนด 15 สัปดาห์แล้ว'
+                : timeSlotConflict.hasConflict
+                  ? 'ไม่สามารถบันทึกได้เนื่องจากเวลาชนกัน'
+                  : `ยืนยันการบันทึกเข้าเรียนรอบที่ ${dailyRoundNumber}`}
             </button>
           </div>
         )}
 
         {/* ส่วนแสดงภาพวิเคราะห์ใบหน้า */}
-        {scanResults.length > 0 && !isRoundLimitReached && (
+        {scanResults.length > 0 && !isRoundLimitReached && !isCourseCompleted && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
             {scanResults.map((res, idx) => (
               <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80">
@@ -1567,7 +1632,7 @@ export default function AttendancePage() {
                 onClick={handleConfirmDeleteBox}
                 className="flex-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white py-2.5 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer"
               >
-                ยืนยัน
+                ลบกรอบ
               </button>
             </div>
           </div>

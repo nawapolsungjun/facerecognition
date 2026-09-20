@@ -29,7 +29,7 @@ export default function AdminCourseStudentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // States สำหรับ Modal แก้ไขข้อมูลวิชา (ตามรูปแบบของ Teacher)
+  // States สำหรับ Modal แก้ไขข้อมูลวิชา
   const [isEditingCourse, setIsEditingCourse] = useState(false);
   const [editData, setEditData] = useState({
     courseName: '',
@@ -53,7 +53,7 @@ export default function AdminCourseStudentsPage() {
   const [selectedStudentForReport, setSelectedStudentForReport] = useState<any>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
-  // Toast Alert Message State (ลอยตรงกลางด้านบน)
+  // Toast Alert Message State
   const [toast, setToast] = useState<{
     show: boolean;
     type: 'success' | 'error';
@@ -124,9 +124,20 @@ export default function AdminCourseStudentsPage() {
       if (resHistory && resHistory.ok) {
         const historyJson = await resHistory.json();
         const rawList = Array.isArray(historyJson.data) ? historyJson.data : Array.isArray(historyJson) ? historyJson : [];
+        
+        // เรียงลำดับตามวันที่เรียนจริง (date) และช่วงเวลา (timeSlot)
         const sortedHistory = [...rawList].sort((a: any, b: any) => {
-          return new Date(a.createdAt || a.date).getTime() - new Date(b.createdAt || b.date).getTime();
+          const dateStrA = a.date || (a.createdAt ? a.createdAt.split('T')[0] : '');
+          const dateStrB = b.date || (b.createdAt ? b.createdAt.split('T')[0] : '');
+          const tA = new Date(dateStrA).getTime();
+          const tB = new Date(dateStrB).getTime();
+          if (tA !== tB) return tA - tB;
+
+          const slotA = a.timeSlot || '';
+          const slotB = b.timeSlot || '';
+          return slotA.localeCompare(slotB);
         });
+
         setHistorySessions(sortedHistory);
       }
     } catch (err) {
@@ -330,6 +341,7 @@ export default function AdminCourseStudentsPage() {
       .trim();
   };
 
+  // จัดกลุ่มและคำนวณสถิติรายสัปดาห์ (15 สัปดาห์) ให้ตรงกับหน้ารายงาน
   const studentWeeklyAttendance = useMemo(() => {
     if (!selectedStudentForReport) return [];
 
@@ -337,8 +349,21 @@ export default function AdminCourseStudentsPage() {
     const studentCode = String(selectedStudentForReport.studentCode || '').trim();
     const studentName = `${selectedStudentForReport.firstName || ''} ${selectedStudentForReport.lastName || ''}`.trim() || selectedStudentForReport.name || '';
 
+    // เรียงตามวันที่จริงและช่วงเวลา
+    const sorted = [...historySessions].sort((a: any, b: any) => {
+      const dateStrA = a.date || (a.createdAt ? a.createdAt.split('T')[0] : '');
+      const dateStrB = b.date || (b.createdAt ? b.createdAt.split('T')[0] : '');
+      const tA = new Date(dateStrA).getTime();
+      const tB = new Date(dateStrB).getTime();
+      if (tA !== tB) return tA - tB;
+
+      const slotA = a.timeSlot || '';
+      const slotB = b.timeSlot || '';
+      return slotA.localeCompare(slotB);
+    });
+
     const uniqueSlots = new Map<string, any>();
-    historySessions.forEach((sess: any) => {
+    for (const sess of sorted) {
       const d = new Date(sess.date || sess.createdAt || 0);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -366,18 +391,14 @@ export default function AdminCourseStudentsPage() {
           timeSlot,
           sessionType,
           note: sess.note || '',
-          sessionsList: [sess],
-          rawTimestamp: d.getTime(),
+          sessionsList: [sess]
         });
       } else {
         uniqueSlots.get(slotKey).sessionsList.push(sess);
       }
-    });
+    }
 
-    const standardWeeks = Array.from(uniqueSlots.values()).sort(
-      (a, b) => a.rawTimestamp - b.rawTimestamp,
-    );
-
+    const standardWeeks = Array.from(uniqueSlots.values()).slice(0, 15);
     const totalWeeks = 15;
     const weeksList = [];
 
@@ -417,13 +438,30 @@ export default function AdminCourseStudentsPage() {
             finalStatus = manuallyEdited.status;
             finalRemark = manuallyEdited.remark || '';
           } else {
-            studentRecordsInWeek.sort((a, b) => {
-              const tA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-              const tB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-              return tB - tA;
+            const patternArray = studentRecordsInWeek.map((att: any) => {
+              if (att && att.status !== 'ขาดเรียน' && att.status !== 'รอตรวจสอบ') {
+                return 1;
+              }
+              return 0;
             });
-            finalStatus = studentRecordsInWeek[0].status || 'ขาดเรียน';
-            finalRemark = studentRecordsInWeek[0].remark || '';
+            const patternStr = patternArray.join('');
+
+            if (patternArray.length === 3) {
+              if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
+              else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
+              else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 2) {
+              if (patternStr === '11') finalStatus = 'มาเรียน';
+              else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
+              else if (patternStr === '01') finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 1) {
+              finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
+            }
+
+            const latest = studentRecordsInWeek[studentRecordsInWeek.length - 1];
+            finalRemark = latest.remark || '';
           }
         }
 
@@ -469,6 +507,7 @@ export default function AdminCourseStudentsPage() {
     return weeksList;
   }, [selectedStudentForReport, historySessions]);
 
+  // คำนวณสรุปสถิติตามเกณฑ์: สาย 2 = ขาด 1, ลา 2 = ขาด 1
   const modalStudentSummary = useMemo(() => {
     const recordedList = studentWeeklyAttendance.filter((a: any) => a.isRecorded);
     const total = recordedList.length;
@@ -478,10 +517,17 @@ export default function AdminCourseStudentsPage() {
     const pending = recordedList.filter((a: any) => a.status === 'รอตรวจสอบ').length;
     const absent = recordedList.filter((a: any) => a.status === 'ขาดเรียน').length;
 
-    const percentage = total > 0 ? Math.round(((present + late) / total) * 100) : 100;
+    // คำนวณตามเกณฑ์: สาย 2 ครั้ง = ขาด 1 ครั้ง, ลา 2 ครั้ง = ขาด 1 ครั้ง
+    const penaltyFromLate = Math.floor(late / 2);
+    const penaltyFromLeave = Math.floor(leave / 2);
+    const effectiveAbsences = absent + penaltyFromLate + penaltyFromLeave;
+
+    const actualAttended = Math.max(0, total - effectiveAbsences);
+    const percentage = total > 0 ? Math.round((actualAttended / total) * 100) : 100;
+
     const MAX_ALLOWED_ABSENT = 3;
-    const remainingAbsentQuota = Math.max(0, MAX_ALLOWED_ABSENT - absent);
-    const isExamEligible = absent <= MAX_ALLOWED_ABSENT;
+    const remainingAbsentQuota = Math.max(0, MAX_ALLOWED_ABSENT - effectiveAbsences);
+    const isExamEligible = percentage >= 80;
 
     return {
       total,
@@ -870,7 +916,7 @@ export default function AdminCourseStudentsPage() {
         </p>
       </footer>
 
-      {/* 5. Modal Popup: ตั้งค่าและแก้ไขรายวิชา (รูปแบบเดียวกับ Teacher) */}
+      {/* 5. Modal Popup: ตั้งค่าและแก้ไขรายวิชา */}
       {isEditingCourse && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200">
@@ -999,7 +1045,7 @@ export default function AdminCourseStudentsPage() {
         </div>
       )}
 
-      {/* Modal Popup: ยืนยันการแก้ไขข้อมูลวิชา (ตรวจสอบความถูกต้อง) */}
+      {/* Modal Popup: ยืนยันการแก้ไขข้อมูลวิชา */}
       {showUpdateCourseModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 md:p-8 max-w-md w-full shadow-xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
@@ -1103,7 +1149,7 @@ export default function AdminCourseStudentsPage() {
         </div>
       )}
 
-      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา (พร้อมการ์ดเกณฑ์เวลาเรียน) */}
+      {/* 7. Center Modal Popup: รายงานสถิติประวัตินักศึกษา (คำนวณเปอร์เซ็นต์ตามเกณฑ์ สาย 2 = ขาด 1, ลา 2 = ขาด 1) */}
       {isReportModalOpen && selectedStudentForReport && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">

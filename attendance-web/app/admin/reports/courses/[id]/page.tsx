@@ -132,11 +132,20 @@ export default function AdminSingleCourseReportPage() {
           : Array.isArray(historyJson)
             ? historyJson
             : [];
+
+        // เรียงลำดับตามวันที่เรียนจริง (date) และช่วงเวลา (timeSlot) เสมือนหน้าอาจารย์
         const sortedHistory = [...rawList].sort((a: any, b: any) => {
-          const tA = new Date(a.createdAt || a.date).getTime();
-          const tB = new Date(b.createdAt || b.date).getTime();
-          return tA - tB;
+          const dateStrA = a.date || (a.createdAt ? a.createdAt.split('T')[0] : '');
+          const dateStrB = b.date || (b.createdAt ? b.createdAt.split('T')[0] : '');
+          const tA = new Date(dateStrA).getTime();
+          const tB = new Date(dateStrB).getTime();
+          if (tA !== tB) return tA - tB;
+
+          const slotA = a.timeSlot || '';
+          const slotB = b.timeSlot || '';
+          return slotA.localeCompare(slotB);
         });
+
         setHistorySessions(sortedHistory);
       }
     } catch (err) {
@@ -465,13 +474,27 @@ export default function AdminSingleCourseReportPage() {
     return `รอบเวลา ${slot} น.`;
   };
 
+  // ประมวลผลข้อมูลสำหรับพิมพ์แบบฟอร์ม (จัดกลุ่ม 15 สัปดาห์ตรงกับฝั่งอาจารย์ 100%)
   const printStudentsData = useMemo(() => {
     const baseStudents = courseInfo?.students?.length > 0 ? courseInfo.students : dailyReport.data;
     if (!baseStudents || baseStudents.length === 0) return [];
 
+    // เรียงประวัติทั้งหมดตามวันที่เรียนจริง (date) และช่วงเวลา (timeSlot)
+    const sorted = [...historySessions].sort((a: any, b: any) => {
+      const dateStrA = a.date || (a.createdAt ? a.createdAt.split('T')[0] : '');
+      const dateStrB = b.date || (b.createdAt ? b.createdAt.split('T')[0] : '');
+      const tA = new Date(dateStrA).getTime();
+      const tB = new Date(dateStrB).getTime();
+      if (tA !== tB) return tA - tB;
+
+      const slotA = a.timeSlot || '';
+      const slotB = b.timeSlot || '';
+      return slotA.localeCompare(slotB);
+    });
+
     const uniqueSlots = new Map<string, any>();
 
-    historySessions.forEach((sess: any) => {
+    for (const sess of sorted) {
       const d = new Date(sess.date || sess.createdAt || 0);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -498,20 +521,15 @@ export default function AdminSingleCourseReportPage() {
           dateStr,
           timeSlot,
           sessionType,
-          sessionIds: sess.id ? [String(sess.id)] : [],
-          rawTimestamp: d.getTime(),
+          allSessions: [sess]
         });
       } else {
         const existing = uniqueSlots.get(slotKey);
-        if (sess.id && !existing.sessionIds.includes(String(sess.id))) {
-          existing.sessionIds.push(String(sess.id));
-        }
+        existing.allSessions.push(sess);
       }
-    });
+    }
 
-    const standardWeeks = Array.from(uniqueSlots.values()).sort(
-      (a, b) => a.rawTimestamp - b.rawTimestamp,
-    );
+    const standardWeeks = Array.from(uniqueSlots.values()).slice(0, 15);
 
     return baseStudents.map((student: any) => {
       const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || student.name || 'ไม่ระบุชื่อ';
@@ -521,51 +539,56 @@ export default function AdminSingleCourseReportPage() {
 
       standardWeeks.forEach((weekSession: any, wIdx: number) => {
         const weekNum = wIdx + 1;
-
         const studentRecordsInWeek: any[] = [];
-        historySessions.forEach((session: any) => {
-          const d = new Date(session.date || session.createdAt || 0);
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          const sessionDateStr = `${y}-${m}-${day}`;
 
-          const isSessionMatch = session.id && weekSession.sessionIds.includes(String(session.id));
-          const isDateMatch = sessionDateStr === weekSession.dateStr;
+        // รวบรวม record ของนักศึกษาคนนี้จากทุกรอบในสัปดาห์นี้
+        for (const s of weekSession.allSessions) {
+          const records = s.records || s.attendances || [];
+          const found = records.find((item: any) => {
+            const rId = String(item.studentId || item.student?.id || item.id || '');
+            const rCode = String(item.studentCode || item.student?.studentCode || '').trim();
+            const rName = `${item.firstName || item.student?.firstName || ''} ${item.lastName || item.student?.lastName || ''}`.trim() || item.name || item.student?.name;
 
-          if (isSessionMatch || isDateMatch) {
-            const records = session.attendances || session.records || [];
-            const r = records.find((item: any) => {
-              const rId = String(item.studentId || item.student?.id || item.id || '');
-              const rCode = String(item.studentCode || item.student?.studentCode || '').trim();
-              const rName = `${item.firstName || item.student?.firstName || ''} ${item.lastName || item.student?.lastName || ''}`.trim() || item.name || item.student?.name;
+            return (studentId && rId && rId === studentId) ||
+              (studentCode && rCode && rCode === studentCode) ||
+              (studentName && rName && rName === studentName);
+          });
 
-              return (studentId && rId && rId === studentId) ||
-                (studentCode && rCode && rCode === studentCode) ||
-                (studentName && rName && rName === studentName);
-            });
-
-            if (r) {
-              studentRecordsInWeek.push(r);
-            }
+          if (found) {
+            studentRecordsInWeek.push(found);
           }
-        });
+        }
 
         let finalStatus = 'ขาดเรียน';
-        if (studentRecordsInWeek.length > 0) {
-          const manuallyEdited = studentRecordsInWeek.find(
-            (r) => (r.remark || '').includes('แก้ไข') || r.isManual === true
-          );
 
-          if (manuallyEdited) {
-            finalStatus = manuallyEdited.status;
+        if (studentRecordsInWeek.length > 0) {
+          // หากมีสถานะที่ระบุเป็น ลา / มาสาย / มาเรียน ชัดเจน (เช่น จากการแก้ไขของอาจารย์)
+          const manualStatus = studentRecordsInWeek.find((r: any) => ['ลา', 'มาสาย', 'มาเรียน'].includes(r.status));
+
+          if (manualStatus) {
+            finalStatus = manualStatus.status;
           } else {
-            studentRecordsInWeek.sort((a, b) => {
-              const tA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-              const tB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-              return tB - tA;
+            const patternArray = studentRecordsInWeek.map((att: any) => {
+              if (att && att.status !== 'ขาดเรียน' && att.status !== 'รอตรวจสอบ') {
+                return 1;
+              }
+              return 0;
             });
-            finalStatus = studentRecordsInWeek[0].status || 'ขาดเรียน';
+            const patternStr = patternArray.join('');
+
+            if (patternArray.length === 3) {
+              if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
+              else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
+              else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 2) {
+              if (patternStr === '11') finalStatus = 'มาเรียน';
+              else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
+              else if (patternStr === '01') finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 1) {
+              finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
+            }
           }
         }
 
@@ -578,8 +601,14 @@ export default function AdminSingleCourseReportPage() {
       const leaveCount = recordedStatuses.filter(v => v === 'ลา').length;
       const pendingCount = recordedStatuses.filter(v => v === 'รอตรวจสอบ').length;
       const absentCount = recordedStatuses.filter(v => v === 'ขาดเรียน').length;
-      const totalRecordedWeeks = standardWeeks.length;
-      const percent = totalRecordedWeeks > 0 ? Math.round(((presentCount + lateCount) / totalRecordedWeeks) * 100) : 0;
+
+      // คิดเปอร์เซ็นต์ตามเกณฑ์: สาย 2 = ขาด 1, ลา 2 = ขาด 1
+      const divisor = standardWeeks.length || 15;
+      const penaltyFromLate = Math.floor(lateCount / 2);
+      const penaltyFromLeave = Math.floor(leaveCount / 2);
+      const effectiveAbsences = absentCount + penaltyFromLate + penaltyFromLeave;
+      const actualAttended = Math.max(0, divisor - effectiveAbsences);
+      const percent = divisor > 0 ? Math.round((actualAttended / divisor) * 100) : 0;
 
       return {
         id: student.id,
@@ -634,7 +663,6 @@ export default function AdminSingleCourseReportPage() {
         </nav>
 
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-          {/* ปุ่มย้อนกลับ */}
           <div className="mb-3">
             <button
               type="button"
@@ -742,7 +770,7 @@ export default function AdminSingleCourseReportPage() {
                 </div>
               </div>
 
-              {/* ตารางรายชื่อประจำวัน (หัวข้อฟิลด์ใหญ่ หนา และ Center) */}
+              {/* ตารางรายชื่อประจำวัน */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 flex gap-2 overflow-x-auto">
                   {['ทั้งหมด', 'มาเรียน', 'มาสาย', 'ลา', 'รอตรวจสอบ', 'ขาดเรียน'].map((f) => (
@@ -867,7 +895,7 @@ export default function AdminSingleCourseReportPage() {
             </div>
           )}
 
-          {/* 2. โหมดสรุปภาพรวม 15 สัปดาห์ (หัวข้อฟิลด์ใหญ่หนา และป้องกันคาบเช้าตกบรรทัด) */}
+          {/* 2. โหมดสรุปภาพรวม 15 สัปดาห์ */}
           {reportMode !== 'daily' && (
             <div className="animate-in fade-in duration-300 space-y-4">
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 flex justify-between items-center flex-wrap gap-4">

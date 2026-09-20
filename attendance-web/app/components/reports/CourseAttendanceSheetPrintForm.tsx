@@ -39,7 +39,7 @@ interface CourseAttendanceSheetPrintFormProps {
   };
   students: StudentAttendanceData[];
   totalWeeks?: number;
-  actualRecordedWeeks?: number; // จำนวนสัปดาห์ที่สอนจริง (เช่น 4 สัปดาห์)
+  actualRecordedWeeks?: number;
 }
 
 export default function CourseAttendanceSheetPrintForm({
@@ -76,6 +76,14 @@ export default function CourseAttendanceSheetPrintForm({
     });
   }, [students]);
 
+  // ตัดคำนำหน้า "อาจารย์" หรือตำแหน่งทางวิชาการออกจากชื่อ เพื่อใช้แสดงในวงเล็บใต้ลายเซ็น
+  const cleanedTeacherName = useMemo(() => {
+    if (!courseInfo.teacherName) return '';
+    return courseInfo.teacherName
+      .replace(/^(อาจารย์|อ\.|ดร\.|ผู้ช่วยศาสตราจารย์|ผศ\.|รองศาสตราจารย์|รศ\.)\s*/g, '')
+      .trim();
+  }, [courseInfo.teacherName]);
+
   return (
     <>
       <div className="print-container hidden print:block font-sarabun text-black bg-white w-full text-[12px] leading-tight">
@@ -107,7 +115,6 @@ export default function CourseAttendanceSheetPrintForm({
             <tr className="no-border-row">
               <th colSpan={totalWeeks + 8} className="p-0 font-normal text-left pb-2.5 no-border-cell">
                 <div className="border border-black p-2 bg-slate-50/20 text-[11.5px]">
-                  {/* ปรับเพิ่ม กลุ่มเรียน และ ภาคเรียน/ปีการศึกษา ตรงนี้ */}
                   <div className="flex justify-between items-center mb-1.5">
                     <div>
                       <span className="font-bold">รหัสวิชา: </span>
@@ -131,8 +138,6 @@ export default function CourseAttendanceSheetPrintForm({
                     <div>
                       <span className="font-bold">ผู้สอน: </span>
                       <span>{courseInfo.teacherName || 'อาจารย์ประจำวิชา'}</span>
-                    </div>
-                    <div>
                     </div>
                     <div>
                       <span className="font-bold">จำนวนนักศึกษาทั้งหมด: </span>
@@ -182,13 +187,20 @@ export default function CourseAttendanceSheetPrintForm({
                   st.totalAbsent ??
                   Object.values(st.records || {}).filter((v) => v === 'ขาดเรียน').length;
 
-                // ฐานการคำนวณ % ยึดจากสัปดาห์ที่มีการเรียนจริง หรือ totalWeeks
                 const divisor = actualRecordedWeeks || totalWeeks;
+
+                const penaltyFromLate = Math.floor(lateCount / 2);
+                const penaltyFromLeave = Math.floor(leaveCount / 2);
+                const effectiveAbsences = absentCount + penaltyFromLate + penaltyFromLeave;
+
+                const actualAttended = Math.max(0, divisor - effectiveAbsences);
+
                 const percent =
-                  st.percentage ??
-                  (divisor > 0
-                    ? Math.round(((presentCount + lateCount) / divisor) * 100)
-                    : 0);
+                  divisor > 0
+                    ? Math.round((actualAttended / divisor) * 100)
+                    : 0;
+
+                const isBelowCriteria = percent < 80;
 
                 return (
                   <tr key={st.id || idx} className="print-row">
@@ -210,7 +222,14 @@ export default function CourseAttendanceSheetPrintForm({
                     <td className="table-grid-cell text-center font-mono">{lateCount}</td>
                     <td className="table-grid-cell text-center font-mono">{leaveCount}</td>
                     <td className="table-grid-cell text-center font-mono">{absentCount}</td>
-                    <td className="table-grid-cell text-center font-mono font-bold">{percent}%</td>
+                    <td
+                      className={`table-grid-cell text-center font-mono font-bold ${
+                        isBelowCriteria ? 'text-red-700 bg-red-50/40 font-black' : ''
+                      }`}
+                      title={isBelowCriteria ? 'เวลาเรียนไม่ถึง 80% (ไม่มีสิทธิ์เข้าสอบ)' : 'ผ่านเกณฑ์'}
+                    >
+                      {percent}%
+                    </td>
                   </tr>
                 );
               })
@@ -233,13 +252,13 @@ export default function CourseAttendanceSheetPrintForm({
                 [/] มาเรียนปกติ &nbsp;&nbsp;&nbsp;&nbsp; [ส] มาสาย &nbsp;&nbsp;&nbsp;&nbsp; [ล] ลากิจ/ลาป่วย &nbsp;&nbsp;&nbsp;&nbsp; [ข] ขาดเรียน
               </p>
               <div className="mt-2 space-y-0.5 text-slate-600">
-                <p>1. อาจารย์ผู้สอนโปรดตรวจสอบความครบถ้วนของรายชื่อนักศึกษา หากพบข้อผิดพลาดให้ประสานงานฝ่ายทะเบียน</p>
-                <p>2. นักศึกษาที่มีเวลาเรียนไม่ถึงร้อยละ 80 (ขาดเกินกำหนด) จะไม่มีสิทธิ์เข้าสอบปลายภาค</p>
+                <p>1. เกณฑ์เวลาเรียน: มาสาย 2 ครั้ง คิดเป็นขาดเรียน 1 ครั้ง และ ลา 2 ครั้ง คิดเป็นขาดเรียน 1 ครั้ง</p>
+                <p>2. นักศึกษาที่มีเวลาเรียนไม่ถึงร้อยละ 80 (ตัวเลขไฮไลท์สีแดง) จะไม่มีสิทธิ์เข้าสอบปลายภาค</p>
+                <p>3. อาจารย์ผู้สอนโปรดตรวจสอบความครบถ้วนของรายชื่อนักศึกษา หากพบข้อผิดพลาดให้ประสานงานฝ่ายทะเบียน</p>
               </div>
             </div>
 
             <div className="text-right text-[10px] text-slate-500">
-              <p>สำนักส่งเสริมวิชาการและงานทะเบียน</p>
               <p className="mt-1">พิมพ์เมื่อ: {printTimestamp}</p>
             </div>
           </div>
@@ -248,7 +267,7 @@ export default function CourseAttendanceSheetPrintForm({
             <div className="w-64">
               <p className="mb-12">ลงชื่อ ........................................................... อาจารย์ผู้สอน</p>
               <p className="text-slate-800 font-bold">
-                ({courseInfo.teacherName || '...........................................................'})
+                ({cleanedTeacherName || '...........................................................'})
               </p>
               <p className="text-slate-600 text-[11px] mt-0.5">วันที่ ........ / ........ / ................</p>
             </div>

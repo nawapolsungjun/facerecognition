@@ -14,6 +14,7 @@ export default function StudentListPage() {
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const [courseWeeks, setCourseWeeks] = useState<any[]>([]);
+  const [rawHistorySessions, setRawHistorySessions] = useState<any[]>([]);
 
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -45,7 +46,7 @@ export default function StudentListPage() {
   const [showArchiveCourseModal, setShowArchiveCourseModal] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<{ id: any; name: string } | null>(null);
 
-  // Toast Alert Message State (ลอยตรงกลางด้านบน)
+  // Toast Alert Message State
   const [toast, setToast] = useState<{
     show: boolean;
     type: 'success' | 'error';
@@ -124,8 +125,10 @@ export default function StudentListPage() {
       if (resHistory && resHistory.ok) {
         const historyJson = await resHistory.json();
         if (historyJson.success && Array.isArray(historyJson.data)) {
+          setRawHistorySessions(historyJson.data);
+
           const sorted = [...historyJson.data].sort((a: any, b: any) => {
-            return new Date(a.createdAt || a.date).getTime() - new Date(b.createdAt || b.date).getTime();
+            return new Date(a.date || a.createdAt).getTime() - new Date(b.date || b.createdAt).getTime();
           });
 
           const uniqueSlots = new Map<string, any>();
@@ -160,17 +163,20 @@ export default function StudentListPage() {
                 dateStr,
                 timeSlot,
                 isComp,
-                sessionIds: [sess.id]
+                sessionIds: [sess.id],
+                allSessions: [sess]
               });
             } else {
               const existing = uniqueSlots.get(slotKey);
               if (!existing.sessionIds.includes(sess.id)) {
                 existing.sessionIds.push(sess.id);
+                existing.allSessions.push(sess);
               }
               uniqueSlots.set(slotKey, {
                 ...existing,
                 ...sess,
-                sessionIds: existing.sessionIds
+                sessionIds: existing.sessionIds,
+                allSessions: existing.allSessions
               });
             }
           }
@@ -369,15 +375,12 @@ export default function StudentListPage() {
       });
   }, [course?.students, searchTerm, sortOrder]);
 
-  // ฟังก์ชันสกัดข้อความหมายเหตุ ตัดข้อความวงเล็บเวลา คาบเรียน หรือข้อความระบบที่ซ้ำซ้อนออก
   const cleanRemarkString = (str: string) => {
     if (!str) return '';
     return str
       .replace(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/gi, '')
       .replace(/\(แก้ไขเวลา[^)]*?\)/gi, '')
-      // ดักจับรูปแบบเวลาในก้ามปูทุกแบบ เช่น [13:00-16:00], [13:00-16:00 น.], [ 13:00 - 16:00 น. ]
       .replace(/\[\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}(\s*น\.)?\s*\]/gi, '')
-      // ดักจับรูปแบบเวลาในวงเล็บกลม เช่น (13:00-16:00 น.)
       .replace(/\(\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}(\s*น\.)?\s*\)/gi, '')
       .replace(/\[คาบปกติ\]/gi, '')
       .replace(/\[สอนชดเชย\]/gi, '')
@@ -389,66 +392,78 @@ export default function StudentListPage() {
       .trim();
   };
 
+  // ดึงประวัติและสถานะที่ตรงกับ Report ของแต่ละสัปดาห์ (1 - 15)
   const studentWeeklyAttendance = useMemo(() => {
     if (!selectedStudent) return [];
 
-    const studentAtts: any[] = selectedStudent.attendances || [];
+    const studentId = selectedStudent.id;
+    const studentCode = String(selectedStudent.studentCode || '').trim();
     const totalWeeks = 15;
     const weeksList = [];
 
     for (let i = 0; i < totalWeeks; i++) {
       const weekIndex = i + 1;
-      const session = courseWeeks[i] || null;
+      const weekSlot = courseWeeks[i] || null;
 
-      if (session) {
-        const validAtts = (session.sessionIds || [])
-          .map((sId: string) => studentAtts.find((a: any) => a.sessionId === sId))
-          .filter(Boolean);
+      if (weekSlot) {
+        // ค้นหา record ของนักศึกษาคนนี้จากเซสชันของสัปดาห์นี้
+        const allSessionsInWeek = weekSlot.allSessions || [weekSlot];
+        const studentRecordsInWeek: any[] = [];
 
-        const patternArray = validAtts.map((att: any) => {
-          if (att && att.status !== 'ขาดเรียน' && att.status !== 'รอตรวจสอบ') {
-            return 1;
+        for (const s of allSessionsInWeek) {
+          const list = s.records || s.attendances || [];
+          const found = list.find((r: any) => 
+            String(r.studentId) === String(studentId) ||
+            String(r.id) === String(studentId) ||
+            String(r.studentCode || '').trim() === studentCode
+          );
+          if (found) {
+            studentRecordsInWeek.push(found);
           }
-          return 0;
-        });
+        }
 
-        const patternStr = patternArray.join('');
+        // หากมีการแก้ไขด้วยตนเอง (Manual) หรือสถานะชัดเจน
         let finalStatus = 'ขาดเรียน';
-
-        if (patternArray.length === 3) {
-          if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
-          else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
-          else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
-          else finalStatus = 'ขาดเรียน';
-        }
-        else if (patternArray.length === 2) {
-          if (patternStr === '11') finalStatus = 'มาเรียน';
-          else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
-          else if (patternStr === '01') finalStatus = 'มาสาย';
-          else finalStatus = 'ขาดเรียน';
-        }
-        else if (patternArray.length === 1) {
-          finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
-        }
-
         let rawRemark = '';
-        let editTimestamp = '';
 
-        if (validAtts.length > 0) {
-          const manualEdit = validAtts.find((a: any) => (a.remark || '').includes('แก้ไข') || a.isManual);
-          if (manualEdit) {
-            rawRemark = manualEdit.remark || '';
+        if (studentRecordsInWeek.length > 0) {
+          // หากมีรายการที่บันทึกสถานะตรงๆ
+          const latestRecord = studentRecordsInWeek[studentRecordsInWeek.length - 1];
+          rawRemark = latestRecord.remark || '';
+
+          // ถ้ามีการระบุสถานะเป็น ลา หรือ มาสาย หรือ มาเรียน ชัดเจนจากตารางรายงาน
+          const manualStatus = studentRecordsInWeek.find((r: any) => ['ลา', 'มาสาย', 'มาเรียน'].includes(r.status));
+          
+          if (manualStatus) {
+            finalStatus = manualStatus.status;
           } else {
-            const lastAtt = validAtts[validAtts.length - 1];
-            rawRemark = lastAtt.remark || '';
+            // คำนวณจาก Pattern การเช็คชื่อรอบย่อย
+            const patternArray = studentRecordsInWeek.map((att: any) => {
+              if (att && att.status !== 'ขาดเรียน' && att.status !== 'รอตรวจสอบ') {
+                return 1;
+              }
+              return 0;
+            });
+            const patternStr = patternArray.join('');
+
+            if (patternArray.length === 3) {
+              if (['111', '101'].includes(patternStr)) finalStatus = 'มาเรียน';
+              else if (['110', '100', '010'].includes(patternStr)) finalStatus = 'รอตรวจสอบ';
+              else if (['011', '001'].includes(patternStr)) finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 2) {
+              if (patternStr === '11') finalStatus = 'มาเรียน';
+              else if (patternStr === '10') finalStatus = 'รอตรวจสอบ';
+              else if (patternStr === '01') finalStatus = 'มาสาย';
+              else finalStatus = 'ขาดเรียน';
+            } else if (patternArray.length === 1) {
+              finalStatus = patternStr === '1' ? 'มาเรียน' : 'ขาดเรียน';
+            }
           }
         }
 
         const matchEditTime = rawRemark.match(/\(แก้ไข(โดยอาจารย์|โดยผู้ดูแลระบบ)?เมื่อ[^)]*?\)/i);
-        if (matchEditTime) {
-          editTimestamp = matchEditTime[0];
-        }
-
+        const editTimestamp = matchEditTime ? matchEditTime[0] : '';
         const cleanedBase = cleanRemarkString(rawRemark);
 
         let finalRemark = cleanedBase;
@@ -456,17 +471,16 @@ export default function StudentListPage() {
           finalRemark = finalRemark ? `${finalRemark} ${editTimestamp}` : editTimestamp;
         }
 
-        const sessionDate = session.createdAt || session.date;
-        const displayRemark = finalRemark.trim();
+        const sessionDate = weekSlot.createdAt || weekSlot.date;
 
         weeksList.push({
           weekNumber: weekIndex,
           isRecorded: true,
           date: sessionDate,
-          timeLabel: session.timeSlot || '',
-          isComp: session.isComp || session.sessionType === 'COMPENSATION',
+          timeLabel: weekSlot.timeSlot || '',
+          isComp: weekSlot.isComp || weekSlot.sessionType === 'COMPENSATION',
           status: finalStatus,
-          remark: displayRemark,
+          remark: finalRemark.trim(),
           recordTime: sessionDate
         });
       } else {
@@ -486,6 +500,7 @@ export default function StudentListPage() {
     return weeksList;
   }, [selectedStudent, courseWeeks]);
 
+  // สรุปยอดและคิดเปอร์เซ็นต์ตามเกณฑ์ใหม่ (สาย 2 = ขาด 1, ลา 2 = ขาด 1)
   const modalStudentSummary = useMemo(() => {
     const recordedList = studentWeeklyAttendance.filter((a: any) => a.isRecorded);
     const total = recordedList.length;
@@ -495,10 +510,17 @@ export default function StudentListPage() {
     const pending = recordedList.filter((a: any) => a.status === 'รอตรวจสอบ').length;
     const absent = recordedList.filter((a: any) => a.status === 'ขาดเรียน').length;
 
-    const percentage = total > 0 ? Math.round(((present + late) / total) * 100) : 100;
+    // คำนวณตามเกณฑ์มหาวิทยาลัย: สาย 2 = ขาด 1, ลา 2 = ขาด 1
+    const penaltyFromLate = Math.floor(late / 2);
+    const penaltyFromLeave = Math.floor(leave / 2);
+    const effectiveAbsences = absent + penaltyFromLate + penaltyFromLeave;
+
+    const actualAttended = Math.max(0, total - effectiveAbsences);
+    const percentage = total > 0 ? Math.round((actualAttended / total) * 100) : 100;
+
     const MAX_ALLOWED_ABSENT = 3;
-    const remainingAbsentQuota = Math.max(0, MAX_ALLOWED_ABSENT - absent);
-    const isExamEligible = absent <= MAX_ALLOWED_ABSENT;
+    const remainingAbsentQuota = Math.max(0, MAX_ALLOWED_ABSENT - effectiveAbsences);
+    const isExamEligible = percentage >= 80;
 
     return {
       total,
@@ -648,7 +670,6 @@ export default function StudentListPage() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-base font-black text-slate-800">เพิ่มนักศึกษาเข้าสู่รายวิชานี้</h3>
-            
           </div>
 
           <form onSubmit={handleAddStudents} className="flex flex-col sm:flex-row gap-3 items-center">
@@ -888,7 +909,7 @@ export default function StudentListPage() {
         </p>
       </footer>
 
-      {/* 5. Center Modal Popup: สรุปสถิติ 15 สัปดาห์ (แสดงเฉพาะใจความสำคัญของหมายเหตุ) */}
+      {/* 5. Center Modal Popup: สรุปสถิติ 15 สัปดาห์ (อัปเดตเกณฑ์ตรงกับหน้ารายงาน) */}
       {isReportModalOpen && selectedStudent && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
