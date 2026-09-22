@@ -104,10 +104,11 @@ export async function POST(request: Request) {
     // ตรวจสอบว่าวิชานี้และกลุ่มนี้ เปิดไปแล้วหรือยังในเทอมและปีการศึกษานี้
     const existingCourse = await prisma.course.findFirst({
       where: {
+        academicYear: academicYear.trim(),
         courseCode: courseCode.trim(),
         section: section.trim(),
         semester: semester.trim(),
-        academicYear: academicYear.trim(),
+        
       }
     });
 

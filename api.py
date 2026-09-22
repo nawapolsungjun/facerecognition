@@ -16,6 +16,7 @@ import face_recognition
 
 app = FastAPI(title="Face Recognition AI Service - Local SQLite Mode")
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

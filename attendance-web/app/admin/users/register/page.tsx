@@ -1,6 +1,6 @@
 // attendance-web/app/admin/users/register/page.tsx
 'use client';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function RegisterUserPage() {
@@ -14,6 +14,7 @@ export default function RegisterUserPage() {
     password: '',
   });
 
+  const [existingUsers, setExistingUsers] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -35,14 +36,37 @@ export default function RegisterUserPage() {
 
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ดึงข้อมูลผู้ใช้ทั้งหมดมาเก็บไว้เช็คชื่อซ้ำเมื่อโหลดหน้าเว็บ
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const res = await fetch('/api/admin/users');
+        const data = await res.json();
+        if (data.success && data.data) {
+          setExistingUsers(data.data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch existing users for validation:', err);
+      }
+    };
+    fetchUsers();
+  }, []);
+
   // ฟังก์ชันแสดง Toast Notification (ตั้งเวลา 1500ms / 1.5 วินาที)
-  const showToast = useCallback((type: 'success' | 'error', title: string, message: string, duration = 1500) => {
+  const showToast = useCallback((type: 'success' | 'error', title: string, message: string, duration = 3000) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ show: true, type, title, message });
     toastTimerRef.current = setTimeout(() => {
       setToast((prev) => ({ ...prev, show: false }));
     }, duration);
   }, []);
+
+  // ฟังก์ชันตัดคำนำหน้าชื่อภาษาไทย
+  const cleanNamePrefix = (name: string) => {
+    if (!name) return '';
+    // ตัดคำนำหน้าออกและลบช่องว่างส่วนเกิน
+    return name.replace(/^(ศ\.ดร\.|รศ\.ดร\.|ผศ\.ดร\.|ศ\.|รศ\.|ผศ\.|ดร\.|อาจารย์|อ\.|นาย|นางสาว|นาง)\s*/gi, '').trim();
+  };
 
   // เปิด Popup ตรวจสอบข้อมูลก่อนส่ง
   const handleOpenConfirm = (e: React.FormEvent) => {
@@ -55,6 +79,27 @@ export default function RegisterUserPage() {
       showToast('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณาระบุรหัสนักศึกษาสำหรับบัญชีนักเรียน');
       return;
     }
+
+    // --- ระบบตรวจสอบชื่อ-นามสกุลซ้ำซ้อน (โดยไม่สนใจคำนำหน้า) ---
+    const cleanNewFirst = cleanNamePrefix(formData.firstName);
+    const cleanNewLast = formData.lastName.trim();
+
+    const isDuplicateName = existingUsers.some((u: any) => {
+      // เทียบเฉพาะคนที่มี role เดียวกันก็ได้ หรือเทียบทั้งระบบ
+      if (u.role !== formData.role) return false;
+
+      const cleanExistingFirst = cleanNamePrefix(u.firstName || u.name || '');
+      const cleanExistingLast = (u.lastName || '').trim();
+      
+      return cleanExistingFirst === cleanNewFirst && cleanExistingLast === cleanNewLast;
+    });
+
+    if (isDuplicateName) {
+      showToast('error', 'พบรายชื่อซ้ำซ้อน', `มีผู้ใช้งานชื่อ "${cleanNewFirst} ${cleanNewLast}" อยู่ในระบบแล้ว (อาจมีคำนำหน้าชื่อต่างกัน) กรุณาตรวจสอบอีกครั้ง`);
+      return; // บล็อกไม่ให้เปิด Modal
+    }
+    // --------------------------------------------------------
+
     setShowConfirmModal(true);
   };
 
@@ -246,7 +291,7 @@ export default function RegisterUserPage() {
             {/* รหัสผ่าน (พร้อมปุ่มดวงตาเปิด-ปิด) */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                รหัสผ่านเริ่มต้น
+                รหัสผ่าน
               </label>
               <div className="relative">
                 <input

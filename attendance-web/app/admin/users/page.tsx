@@ -304,8 +304,36 @@ function AdminUsersContent() {
     setShowDeleteConfirmModal(true);
   };
 
+  // -------------------------------------------------------------
+  // ฟังก์ชันตัดคำนำหน้าชื่อ และ ป้องกันการแก้ชื่อซ้ำ
+  // -------------------------------------------------------------
+  const cleanNamePrefix = (name: string) => {
+    if (!name) return '';
+    return name.replace(/^(ศ\.ดร\.|รศ\.ดร\.|ผศ\.ดร\.|ศ\.|รศ\.|ผศ\.|ดร\.|อาจารย์|อ\.|นาย|นางสาว|นาง)\s*/gi, '').trim();
+  };
+
   const handleOpenSaveConfirm = (e: React.FormEvent) => {
     e.preventDefault();
+
+    const cleanNewFirst = cleanNamePrefix(editFormData.firstName);
+    const cleanNewLast = editFormData.lastName.trim();
+
+    const isDuplicateName = users.some((u: any) => {
+      // ไม่เอาชื่อตัวเองมาเทียบ (ป้องกันแจ้งเตือนซ้ำตอนแก้ข้อมูลตัวเอง)
+      if (u.id === editingUser.id) return false;
+      if (u.role !== editingUser.role) return false;
+
+      const cleanExistingFirst = cleanNamePrefix(u.firstName || u.name || '');
+      const cleanExistingLast = (u.lastName || '').trim();
+      
+      return cleanExistingFirst === cleanNewFirst && cleanExistingLast === cleanNewLast;
+    });
+
+    if (isDuplicateName) {
+      showToast('error', 'พบรายชื่อซ้ำซ้อน', `มีผู้ใช้งานชื่อ "${cleanNewFirst} ${cleanNewLast}" อยู่ในระบบแล้ว กรุณาตรวจสอบอีกครั้ง`);
+      return;
+    }
+
     setShowSaveConfirmModal(true);
   };
 
@@ -424,7 +452,7 @@ function AdminUsersContent() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-8">
-        {/* ปุ่มย้อนกลับ ตรงแนวขอบซ้ายของการ์ดพอดี */}
+        {/* ปุ่มย้อนกลับ */}
         <div className="mb-3">
           <button
             type="button"
@@ -637,7 +665,7 @@ function AdminUsersContent() {
           </div>
         </div>
 
-        {/* ตารางรายชื่อทั้งหมด (ปรับฟอนต์หัวข้อให้อยู่ตรงกลางและเด่นชัดขึ้น) */}
+        {/* ตารางรายชื่อทั้งหมด */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse table-fixed sm:table-auto">

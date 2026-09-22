@@ -13,8 +13,8 @@ export default function AdminCourseManagementPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
-  // ตัวกรองสถานะของวิชา
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL');
+  // ตัวกรองสถานะของวิชา เพิ่ม CANCELLED
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED' | 'CANCELLED'>('ALL');
 
   // State เริ่มต้นสำหรับสร้างรายวิชา
   const [newCourse, setNewCourse] = useState({
@@ -27,11 +27,12 @@ export default function AdminCourseManagementPage() {
   });
 
   const [showCreateConfirmModal, setShowCreateConfirmModal] = useState(false);
-  const [courseToDelete, setCourseToDelete] = useState<{ id: string; name: string } | null>(null);
-  const [courseToToggleStatus, setCourseToToggleStatus] = useState<{ id: string; name: string; currentStatus: string } | null>(null);
+  
+  // State สำหรับจัดการเปลี่ยนสถานะ (รับ targetStatus ด้วยว่าต้องการเปลี่ยนเป็นอะไร)
+  const [courseToToggleStatus, setCourseToToggleStatus] = useState<{ id: string; name: string; currentStatus: string; targetStatus: string } | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  // State สำหรับ Toast Alert Message ลอยตรงกลางด้านบน (หายเองอัตโนมัติ)
+  // State สำหรับ Toast Alert Message ลอยตรงกลางด้านบน
   const [toast, setToast] = useState<{
     show: boolean;
     type: 'success' | 'error';
@@ -120,8 +121,11 @@ export default function AdminCourseManagementPage() {
   const handleToggleCourseStatus = async () => {
     if (!courseToToggleStatus) return;
     setIsUpdatingStatus(true);
-    const newStatus = courseToToggleStatus.currentStatus === 'ARCHIVED' ? 'ACTIVE' : 'ARCHIVED';
-    const statusText = newStatus === 'ARCHIVED' ? 'จัดเก็บรายวิชา' : 'เปิดสอนรายวิชา';
+    const newStatus = courseToToggleStatus.targetStatus;
+    
+    let statusText = 'เปิดสอนรายวิชา';
+    if (newStatus === 'ARCHIVED') statusText = 'จัดเก็บรายวิชา';
+    if (newStatus === 'CANCELLED') statusText = 'ยกเลิกรายวิชา';
 
     try {
       const res = await fetch(`/api/courses/${courseToToggleStatus.id}`, {
@@ -133,7 +137,7 @@ export default function AdminCourseManagementPage() {
       if (res.ok && (json.success || json.data)) {
         setCourseToToggleStatus(null);
         fetchInitialData();
-        showToast('success', `${statusText}สำเร็จ`, `ปรับสถานะวิชา ${courseToToggleStatus.name} เรียบร้อยแล้ว`);
+        showToast('success', `${statusText}สำเร็จ`, `ปรับสถานะวิชา ${courseToToggleStatus.name} เป็น${statusText}แล้ว`);
       } else {
         showToast('error', 'เกิดข้อผิดพลาด', json.error || `ไม่สามารถ${statusText}ได้`);
       }
@@ -144,35 +148,46 @@ export default function AdminCourseManagementPage() {
     }
   };
 
-  const handleConfirmDeleteCourse = async () => {
-    if (!courseToDelete) return;
-    try {
-      const res = await fetch(`/api/admin/courses?id=${courseToDelete.id}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (json.success) {
-        setCourseToDelete(null);
-        fetchInitialData();
-        showToast('success', 'ลบรายวิชาสำเร็จ', 'ลบรายวิชาออกจากระบบเรียบร้อยแล้ว');
-      } else {
-        showToast('error', 'เกิดข้อผิดพลาด', json.error || 'เกิดข้อผิดพลาดในการลบรายวิชา');
-      }
-    } catch {
-      showToast('error', 'เกิดข้อผิดพลาด', 'การเชื่อมต่อฐานข้อมูลล้มเหลว');
-    }
-  };
-
   const filteredCourses = useMemo(() => {
     if (statusFilter === 'ALL') return courses;
     return courses.filter(c => {
-      const isArchived = c.status === 'ARCHIVED';
-      return statusFilter === 'ARCHIVED' ? isArchived : !isArchived;
+      const currentStatus = c.status || 'ACTIVE';
+      return currentStatus === statusFilter;
     });
   }, [courses, statusFilter]);
 
-  const activeCount = useMemo(() => courses.filter(c => c.status !== 'ARCHIVED').length, [courses]);
+  const activeCount = useMemo(() => courses.filter(c => c.status === 'ACTIVE' || !c.status).length, [courses]);
   const archivedCount = useMemo(() => courses.filter(c => c.status === 'ARCHIVED').length, [courses]);
+  const cancelledCount = useMemo(() => courses.filter(c => c.status === 'CANCELLED').length, [courses]);
 
   const selectedTeacherObj = teachers.find(t => String(t.id) === String(newCourse.teacherId));
+
+  // ฟังก์ชันช่วยกำหนดเนื้อหาใน Modal ให้เปลี่ยนไปตาม targetStatus
+  const getToggleModalContent = () => {
+    if (!courseToToggleStatus) return null;
+    
+    if (courseToToggleStatus.targetStatus === 'ARCHIVED') {
+      return {
+        title: 'ยืนยันการจัดเก็บรายวิชา',
+        desc: `คุณต้องการจัดเก็บวิชา "${courseToToggleStatus.name}" ลงในคลังใช่หรือไม่? (ข้อมูลนักศึกษาและเวลาเรียนจะถูกเก็บรักษาไว้ทั้งหมด เหมาะสำหรับวิชาที่สอนจบภาคการศึกษาแล้ว)`,
+        btnClass: 'bg-amber-600 hover:bg-amber-700'
+      };
+    }
+    if (courseToToggleStatus.targetStatus === 'CANCELLED') {
+      return {
+        title: 'ยืนยันการยกเลิกรายวิชา',
+        desc: `คุณต้องการยกเลิกวิชา "${courseToToggleStatus.name}" ใช่หรือไม่? (ข้อมูลประวัติการสอนจะยังอยู่ครบ แต่สถานะจะเปลี่ยนเป็นยกเลิกและไม่สามารถเช็คชื่อเพิ่มได้)`,
+        btnClass: 'bg-red-600 hover:bg-red-700'
+      };
+    }
+    return {
+      title: 'ยืนยันการเปิดสอนรายวิชา',
+      desc: `คุณต้องการนำวิชา "${courseToToggleStatus.name}" กลับมาเปิดสอนอีกครั้งใช่หรือไม่?`,
+      btnClass: 'bg-emerald-700 hover:bg-emerald-800'
+    };
+  };
+
+  const toggleModalContent = getToggleModalContent();
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 relative">
@@ -281,6 +296,16 @@ export default function AdminCourseManagementPage() {
           >
             จัดเก็บแล้ว ({archivedCount})
           </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('CANCELLED')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${statusFilter === 'CANCELLED'
+              ? 'bg-red-600 text-white border-red-600 shadow-xs'
+              : 'bg-red-100 text-red-700 border-red-200 hover:bg-red-50'
+              }`}
+          >
+            ยกเลิกแล้ว ({cancelledCount})
+          </button>
         </div>
 
         {/* ตารางแสดงผลรายวิชา */}
@@ -310,7 +335,9 @@ export default function AdminCourseManagementPage() {
                 )}
 
                 {!loading && filteredCourses.map((course, idx) => {
+                  const isActive = course.status === 'ACTIVE' || !course.status;
                   const isArchived = course.status === 'ARCHIVED';
+                  const isCancelled = course.status === 'CANCELLED';
 
                   return (
                     <tr key={course.id || idx} className="hover:bg-slate-50/60 transition-colors">
@@ -357,7 +384,7 @@ export default function AdminCourseManagementPage() {
                         )}
                       </td>
 
-                      {/* อาจารย์ผู้สอน (จัด text-center ให้ตรงกับหัวข้อฟิลด์พอดี) */}
+                      {/* อาจารย์ผู้สอน */}
                       <td className="py-3.5 px-4 font-medium text-slate-700 text-center whitespace-nowrap">
                         {course.teacherDisplayName || (
                           <span className="text-amber-700">ไม่พบผู้สอน / บัญชีถูกลบ</span>
@@ -366,11 +393,17 @@ export default function AdminCourseManagementPage() {
 
                       {/* สถานะของวิชา */}
                       <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                        {isArchived ? (
+                        {isArchived && (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                             จัดเก็บแล้ว
                           </span>
-                        ) : (
+                        )}
+                        {isCancelled && (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-800 border border-red-200">
+                            ยกเลิกแล้ว
+                          </span>
+                        )}
+                        {isActive && (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             กำลังเปิดสอน
                           </span>
@@ -400,16 +433,42 @@ export default function AdminCourseManagementPage() {
                             </svg>
                           </Link>
 
-                          <button
-                            type="button"
-                            onClick={() => setCourseToDelete({ id: course.id, name: course.courseName })}
-                            title="ลบรายวิชา"
-                            className="p-1.5 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-lg border border-red-200/60 transition-all shadow-2xs cursor-pointer"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
+                          {/* เปลี่ยนเมนูตามสถานะของวิชา */}
+                          {isActive ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setCourseToToggleStatus({ id: course.id, name: course.courseName, currentStatus: course.status, targetStatus: 'ARCHIVED' })}
+                                title="จัดเก็บรายวิชา"
+                                className="p-1.5 text-amber-600 bg-amber-50 hover:bg-amber-600 hover:text-white rounded-lg border border-amber-200/60 transition-all shadow-2xs cursor-pointer"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCourseToToggleStatus({ id: course.id, name: course.courseName, currentStatus: course.status, targetStatus: 'CANCELLED' })}
+                                title="ยกเลิกรายวิชา"
+                                className="p-1.5 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-lg border border-red-200/60 transition-all shadow-2xs cursor-pointer"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                </svg>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCourseToToggleStatus({ id: course.id, name: course.courseName, currentStatus: course.status, targetStatus: 'ACTIVE' })}
+                              title="นำกลับมาเปิดสอนใหม่"
+                              className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white rounded-lg border border-emerald-200/60 transition-all shadow-2xs cursor-pointer"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -477,7 +536,6 @@ export default function AdminCourseManagementPage() {
                 </div>
               </div>
 
-              {/* Grid 3 ช่องสำหรับ กลุ่มเรียน ภาคเรียนที่ ปีการศึกษา */}
               <div className="grid grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/60">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">กลุ่มเรียน</label>
@@ -543,7 +601,7 @@ export default function AdminCourseManagementPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-sm transition-all active:scale-[0.99] cursor-pointer"
+                  className="flex-1 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-[0.99]"
                 >
                   ยืนยัน
                 </button>
@@ -604,17 +662,15 @@ export default function AdminCourseManagementPage() {
         </div>
       )}
 
-      {/* Modal Popup: ยืนยันการเปลี่ยนสถานะวิชา (เปิดสอน <-> จัดเก็บ) */}
-      {courseToToggleStatus && (
+      {/* Modal Popup: ยืนยันการเปลี่ยนสถานะวิชา (จัดเก็บ / ยกเลิก / นำกลับมาเปิดสอน) */}
+      {courseToToggleStatus && toggleModalContent && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
             <h3 className="text-lg font-black text-slate-800">
-              {courseToToggleStatus.currentStatus === 'ARCHIVED' ? 'ยืนยันการเปิดสอนรายวิชา' : 'ยืนยันการจัดเก็บรายวิชา'}
+              {toggleModalContent.title}
             </h3>
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-              {courseToToggleStatus.currentStatus === 'ARCHIVED'
-                ? `คุณต้องการนำวิชา "${courseToToggleStatus.name}" กลับมาเปิดสอนอีกครั้งใช่หรือไม่?`
-                : `คุณต้องการจัดเก็บวิชา "${courseToToggleStatus.name}" (ปิดคลาส) ใช่หรือไม่?`}
+              {toggleModalContent.desc}
             </p>
 
             <div className="flex gap-2.5 mt-5">
@@ -624,48 +680,15 @@ export default function AdminCourseManagementPage() {
                 onClick={() => setCourseToToggleStatus(null)}
                 className="flex-1 py-2 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
               >
-                ยกเลิก
+                ย้อนกลับ
               </button>
               <button
                 type="button"
                 disabled={isUpdatingStatus}
                 onClick={handleToggleCourseStatus}
-                className={`flex-1 text-white py-2 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer ${courseToToggleStatus.currentStatus === 'ARCHIVED'
-                  ? 'bg-emerald-700 hover:bg-emerald-800'
-                  : 'bg-amber-600 hover:bg-amber-700'
-                  }`}
+                className={`flex-1 text-white py-2 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer ${toggleModalContent.btnClass}`}
               >
                 {isUpdatingStatus ? 'กำลังบันทึก...' : 'ยืนยัน'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Popup: ยืนยันการลบรายวิชา */}
-      {courseToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 text-center animate-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-black text-slate-800">ยืนยันการลบรายวิชา</h3>
-            <p className="text-xs text-slate-500 mt-1.5">
-              คุณต้องการลบวิชา <span className="font-bold text-slate-800">{courseToDelete.name}</span> หรือไม่? <br />
-              <span className="text-red-600 font-bold mt-1 inline-block">ข้อมูลการเช็คชื่อและนักศึกษาในวิชานี้จะถูกลบถาวร</span>
-            </p>
-
-            <div className="flex gap-2.5 mt-5">
-              <button
-                type="button"
-                onClick={() => setCourseToDelete(null)}
-                className="flex-1 py-2 font-bold text-slate-500 hover:text-slate-700 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDeleteCourse}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
-              >
-                ยืนยัน
               </button>
             </div>
           </div>

@@ -1111,9 +1111,9 @@ export default function AdminCourseStudentsPage() {
               <button
                 type="button"
                 onClick={handleConfirmArchiveCourse}
-                className="flex-[2] bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
               >
-                จัดเก็บรายวิชา
+                ยืนยัน
               </button>
             </div>
           </div>

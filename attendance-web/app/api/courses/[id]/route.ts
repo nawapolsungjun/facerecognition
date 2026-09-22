@@ -83,9 +83,16 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, data: updated });
   } catch (error: any) {
+    if (error.code === 'P2002' && error.meta?.target?.includes('joinCode')) {
+      return NextResponse.json(
+        { success: false, error: 'รหัสเข้าร่วมชั้นเรียนนี้ถูกใช้งานในวิชาอื่นแล้ว กรุณาใช้รหัสอื่น' },
+        { status: 400 }
+      );
+    }
     console.error("❌ PATCH Course Error:", error.message);
     return NextResponse.json({ success: false, error: 'ไม่สามารถแก้ไขข้อมูลได้' }, { status: 500 });
   }
+  
 }
 
 /**

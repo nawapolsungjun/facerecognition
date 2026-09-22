@@ -25,6 +25,9 @@ export default function TeacherDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
+  // State สำหรับดึงรายชื่ออาจารย์ทั้งหมดในระบบมาเพื่อเทียบชื่อซ้ำ
+  const [existingTeachers, setExistingTeachers] = useState<any[]>([]);
+
   // State สำหรับแก้ไขโปรไฟล์
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editData, setEditData] = useState({
@@ -78,6 +81,22 @@ export default function TeacherDashboard() {
     router.replace("/login");
   }, [router]);
 
+  // ฟังก์ชันดึงผู้ใช้งานทั้งหมด (เพื่อเอามาเช็คชื่อซ้ำ)
+  const fetchExistingTeachers = useCallback(async (token: string) => {
+    try {
+      const res = await fetch("/api/admin/users", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        // กรองเก็บไว้เฉพาะคนที่เป็นอาจารย์
+        setExistingTeachers(data.data.filter((u: any) => u.role === 'TEACHER'));
+      }
+    } catch (err) {
+      console.error("Failed to fetch teachers for validation:", err);
+    }
+  }, []);
+
   // ดึงวิชาที่กำลังเปิดสอน
   const fetchActiveCourses = useCallback(
     async (token: string) => {
@@ -87,7 +106,17 @@ export default function TeacherDashboard() {
         });
         const json = await res.json();
         if (json.success) {
-          setActiveCourses(json.data);
+          // เพิ่มการเรียงลำดับที่นี่: ปีการศึกษา (มาก->น้อย) ตามด้วย ภาคเรียน (มาก->น้อย)
+          const sortedData = json.data.sort((a: any, b: any) => {
+            const yearA = parseInt(a.academicYear) || 0;
+            const yearB = parseInt(b.academicYear) || 0;
+            if (yearA !== yearB) return yearB - yearA;
+            
+            const semA = parseInt(a.semester) || 0;
+            const semB = parseInt(b.semester) || 0;
+            return semB - semA;
+          });
+          setActiveCourses(sortedData);
         } else if (res.status === 401) {
           executeLogout();
         }
@@ -106,13 +135,23 @@ export default function TeacherDashboard() {
       });
       const json = await res.json();
       if (json.success) {
-        setArchivedCourses(json.data);
+        // เพิ่มการเรียงลำดับที่นี่: ปีการศึกษา (มาก->น้อย) ตามด้วย ภาคเรียน (มาก->น้อย)
+        const sortedData = json.data.sort((a: any, b: any) => {
+          const yearA = parseInt(a.academicYear) || 0;
+          const yearB = parseInt(b.academicYear) || 0;
+          if (yearA !== yearB) return yearB - yearA;
+          
+          const semA = parseInt(a.semester) || 0;
+          const semB = parseInt(b.semester) || 0;
+          return semB - semA;
+        });
+        setArchivedCourses(sortedData);
       }
     } catch (err) {
       console.error("Fetch archived courses error:", err);
     }
   }, []);
-
+  
   const loadAllCourses = useCallback(
     async (token: string) => {
       setIsCoursesLoading(true);
@@ -153,7 +192,7 @@ export default function TeacherDashboard() {
             `/api/teacher/profile?teacherId=${userData.id}`,
             {
               headers: { Authorization: `Bearer ${token}` },
-            },
+            }
           );
           const resJson = await res.json();
           if (resJson.success && resJson.data) {
@@ -172,11 +211,12 @@ export default function TeacherDashboard() {
       };
 
       fetchLatestProfile();
+      fetchExistingTeachers(token); // โหลดรายชื่ออาจารย์ทั้งหมดมาเก็บไว้เตรียมเช็ค
       loadAllCourses(token);
     } catch {
       executeLogout();
     }
-  }, [router, loadAllCourses, executeLogout]);
+  }, [router, loadAllCourses, fetchExistingTeachers, executeLogout]);
 
   const handleOpenEditModal = () => {
     setEditData({
@@ -193,12 +233,40 @@ export default function TeacherDashboard() {
     setIsEditModalOpen(true);
   };
 
+  // ฟังก์ชันช่วยตัดคำนำหน้าชื่อ
+  const cleanNamePrefix = (name: string) => {
+    if (!name) return '';
+    return name.replace(/^(ศ\.ดร\.|รศ\.ดร\.|ผศ\.ดร\.|ศ\.|รศ\.|ผศ\.|ดร\.|อาจารย์|อ\.|นาย|นางสาว|นาง)\s*/gi, '').trim();
+  };
+
   const handleOpenProfileConfirm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editData.firstName.trim() || !editData.lastName.trim()) {
       showToast("error", "ข้อมูลไม่ครบถ้วน", "กรุณากรอกชื่อจริงและนามสกุล");
       return;
     }
+
+    // -----------------------------------------------------------------
+    // ระบบตรวจสอบชื่อ-นามสกุลซ้ำซ้อน ก่อนบันทึกการแก้ไข
+    // -----------------------------------------------------------------
+    const cleanNewFirst = cleanNamePrefix(editData.firstName);
+    const cleanNewLast = editData.lastName.trim();
+
+    const isDuplicateName = existingTeachers.some((u: any) => {
+      // ห้ามเอาชื่อตัวเองมาเปรียบเทียบ
+      if (String(u.id) === String(teacherInfo.id)) return false;
+
+      const cleanExistingFirst = cleanNamePrefix(u.firstName || u.name || '');
+      const cleanExistingLast = (u.lastName || '').trim();
+      
+      return cleanExistingFirst === cleanNewFirst && cleanExistingLast === cleanNewLast;
+    });
+
+    if (isDuplicateName) {
+      showToast('error', 'พบรายชื่อซ้ำซ้อน', `มีผู้ใช้งานชื่อ "${cleanNewFirst} ${cleanNewLast}" อยู่ในระบบแล้ว กรุณาตรวจสอบอีกครั้ง`);
+      return;
+    }
+    // -----------------------------------------------------------------
 
     // ตรวจสอบความถูกต้องของการเปลี่ยนรหัสผ่าน
     const isChangingPassword = editData.newPassword || editData.oldPassword || editData.confirmPassword;
@@ -266,6 +334,9 @@ export default function TeacherDashboard() {
 
         localStorage.setItem("teacher_user", JSON.stringify(updatedUser));
         setTeacherInfo(updatedUser);
+        
+        // โหลดรายชื่ออาจารย์ทั้งหมดใหม่ เพื่ออัปเดตข้อมูลในหน่วยความจำให้เป็นล่าสุด
+        if (token) fetchExistingTeachers(token);
 
         showToast("success", "แก้ไขข้อมูลเรียบร้อย", "ข้อมูลอาจารย์ถูกแก้ไขเรียบร้อยแล้ว");
       } else {
@@ -737,7 +808,7 @@ export default function TeacherDashboard() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400 font-bold">ปีการศึกษา:</span>
-                <span className="font-bold text-slate-700">{newCourse.semester.trim()}/{newCourse.academicYear.trim()}</span>
+                <span className="font-bold text-slate-700">ภาคเรียนที่ {newCourse.semester.trim()}/{newCourse.academicYear.trim()}</span>
               </div>
               <div className="flex justify-between pt-2 border-t border-slate-200">
                 <span className="text-slate-400 font-bold">อาจารย์ผู้สอน:</span>
@@ -780,7 +851,7 @@ export default function TeacherDashboard() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    ชื่อจริง
+                    ชื่อจริง <span className="text-[10px] text-slate-400 font-normal">(ใส่คำนำหน้าได้)</span>
                   </label>
                   <input
                     required
@@ -790,7 +861,7 @@ export default function TeacherDashboard() {
                       setEditData({ ...editData, firstName: e.target.value })
                     }
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                    placeholder="ชื่อจริง"
+                    placeholder="เช่น อาจารย์สมรัก"
                   />
                 </div>
                 <div>
