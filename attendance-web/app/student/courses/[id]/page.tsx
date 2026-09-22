@@ -364,7 +364,7 @@ export default function StudentCourseDetailPage() {
     <div className="min-h-screen flex flex-col bg-[#f0f7f4] font-sans text-slate-800 print:bg-white print:p-0">
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm relative print:hidden">
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+          ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
         </h1>
       </header>
 
@@ -638,7 +638,7 @@ export default function StudentCourseDetailPage() {
       </main>
 
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto print:hidden">
-        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        © 2026 ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>

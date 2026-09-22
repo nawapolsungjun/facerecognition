@@ -29,6 +29,7 @@ export default function StudentListPage() {
     joinCode: ''
   });
   const [isDirty, setIsDirty] = useState(false);
+  const [isSavingCourse, setIsSavingCourse] = useState(false);
 
   const [allSystemStudents, setAllSystemStudents] = useState<any[]>([]);
 
@@ -103,7 +104,7 @@ export default function StudentListPage() {
 
         setSelectedStudent((currentSelected: any) => {
           if (!currentSelected) return null;
-          const updatedStudent = json.data.students.find((s: any) => s.id === currentSelected.id);
+          const updatedStudent = json.data.students.find((s: any) => String(s.id) === String(currentSelected.id));
           if (updatedStudent) {
             const freshFirstName = updatedStudent.firstName || '';
             const freshLastName = updatedStudent.lastName || '';
@@ -243,6 +244,7 @@ export default function StudentListPage() {
   };
 
   const handleConfirmUpdateCourse = async () => {
+    setIsSavingCourse(true);
     const token = getAuthToken();
     try {
       const res = await fetch(`/api/courses/${courseId}`, {
@@ -266,6 +268,8 @@ export default function StudentListPage() {
     } catch {
       setShowUpdateCourseModal(false);
       showToast('error', 'เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      setIsSavingCourse(false);
     }
   };
 
@@ -310,7 +314,7 @@ export default function StudentListPage() {
           ...prev,
           students: prev.students.filter((s: any) => String(s.id) !== idToDelete)
         }));
-        if (selectedStudent?.id === studentToDelete.id) setIsReportModalOpen(false);
+        if (String(selectedStudent?.id) === idToDelete) setIsReportModalOpen(false);
         setStudentToDelete(null);
         showToast('success', 'ลบข้อมูลสำเร็จ', 'นำนักศึกษาออกจากรายวิชาเรียบร้อยแล้ว');
       } else {
@@ -324,9 +328,18 @@ export default function StudentListPage() {
     }
   };
 
+  // กรองรายชื่อด้วย studentCode เพื่อป้องกัน Type Mismatch
   const availableStudents = useMemo(() => {
-    const enrolledIds = new Set((course?.students || []).map((s: any) => s.id));
-    const available = allSystemStudents.filter((s: any) => !enrolledIds.has(s.id));
+    const enrolledCodes = new Set(
+      (course?.students || [])
+        .map((s: any) => String(s.studentCode || '').trim())
+        .filter((code: string) => code !== '')
+    );
+
+    const available = allSystemStudents.filter((s: any) => {
+      const sCode = String(s.studentCode || '').trim();
+      return sCode !== '' && !enrolledCodes.has(sCode);
+    });
 
     return available
       .map((student: any) => {
@@ -396,7 +409,7 @@ export default function StudentListPage() {
   const studentWeeklyAttendance = useMemo(() => {
     if (!selectedStudent) return [];
 
-    const studentId = selectedStudent.id;
+    const studentId = String(selectedStudent.id);
     const studentCode = String(selectedStudent.studentCode || '').trim();
     const totalWeeks = 15;
     const weeksList = [];
@@ -406,15 +419,14 @@ export default function StudentListPage() {
       const weekSlot = courseWeeks[i] || null;
 
       if (weekSlot) {
-        // ค้นหา record ของนักศึกษาคนนี้จากเซสชันของสัปดาห์นี้
         const allSessionsInWeek = weekSlot.allSessions || [weekSlot];
         const studentRecordsInWeek: any[] = [];
 
         for (const s of allSessionsInWeek) {
           const list = s.records || s.attendances || [];
           const found = list.find((r: any) => 
-            String(r.studentId) === String(studentId) ||
-            String(r.id) === String(studentId) ||
+            String(r.studentId) === studentId ||
+            String(r.id) === studentId ||
             String(r.studentCode || '').trim() === studentCode
           );
           if (found) {
@@ -422,22 +434,18 @@ export default function StudentListPage() {
           }
         }
 
-        // หากมีการแก้ไขด้วยตนเอง (Manual) หรือสถานะชัดเจน
         let finalStatus = 'ขาดเรียน';
         let rawRemark = '';
 
         if (studentRecordsInWeek.length > 0) {
-          // หากมีรายการที่บันทึกสถานะตรงๆ
           const latestRecord = studentRecordsInWeek[studentRecordsInWeek.length - 1];
           rawRemark = latestRecord.remark || '';
 
-          // ถ้ามีการระบุสถานะเป็น ลา หรือ มาสาย หรือ มาเรียน ชัดเจนจากตารางรายงาน
           const manualStatus = studentRecordsInWeek.find((r: any) => ['ลา', 'มาสาย', 'มาเรียน'].includes(r.status));
           
           if (manualStatus) {
             finalStatus = manualStatus.status;
           } else {
-            // คำนวณจาก Pattern การเช็คชื่อรอบย่อย
             const patternArray = studentRecordsInWeek.map((att: any) => {
               if (att && att.status !== 'ขาดเรียน' && att.status !== 'รอตรวจสอบ') {
                 return 1;
@@ -500,7 +508,6 @@ export default function StudentListPage() {
     return weeksList;
   }, [selectedStudent, courseWeeks]);
 
-  // สรุปยอดและคิดเปอร์เซ็นต์ตามเกณฑ์ใหม่ (สาย 2 = ขาด 1, ลา 2 = ขาด 1)
   const modalStudentSummary = useMemo(() => {
     const recordedList = studentWeeklyAttendance.filter((a: any) => a.isRecorded);
     const total = recordedList.length;
@@ -510,7 +517,7 @@ export default function StudentListPage() {
     const pending = recordedList.filter((a: any) => a.status === 'รอตรวจสอบ').length;
     const absent = recordedList.filter((a: any) => a.status === 'ขาดเรียน').length;
 
-    // คำนวณตามเกณฑ์มหาวิทยาลัย: สาย 2 = ขาด 1, ลา 2 = ขาด 1
+    // คำนวณตามเกณฑ์เวลาเรียน สาย 2 = ขาด 1, ลา 2 = ขาด 1
     const penaltyFromLate = Math.floor(late / 2);
     const penaltyFromLeave = Math.floor(leave / 2);
     const effectiveAbsences = absent + penaltyFromLate + penaltyFromLeave;
@@ -575,7 +582,7 @@ export default function StudentListPage() {
       {/* 1. Header */}
       <header className="bg-[#0f766e] text-white pt-8 pb-6 px-4 text-center shadow-sm">
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-1">
-          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+          ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
         </h1>
       </header>
 
@@ -903,7 +910,7 @@ export default function StudentListPage() {
 
       {/* 4. Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
-        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        © 2026 ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>
@@ -1028,7 +1035,7 @@ export default function StudentListPage() {
                         สัปดาห์ที่ {record.weekNumber}
                       </span>
 
-                      {record.isRecorded && record.isComp && (
+                      {record.isComp && (
                         <span className="bg-amber-100 text-amber-800 text-xs font-bold px-2.5 py-1 rounded-lg">
                           คาบสอนชดเชย
                         </span>
@@ -1264,10 +1271,11 @@ export default function StudentListPage() {
               </button>
               <button
                 type="button"
+                disabled={isSavingCourse}
                 onClick={handleConfirmUpdateCourse}
-                className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer"
+                className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95 disabled:bg-slate-300 cursor-pointer"
               >
-                ยืนยัน
+                {isSavingCourse ? 'กำลังบันทึก...' : 'ยืนยัน'}
               </button>
             </div>
           </div>

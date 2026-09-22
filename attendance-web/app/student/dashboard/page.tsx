@@ -332,7 +332,7 @@ export default function StudentDashboard() {
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="text-center md:text-left">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight mb-1 whitespace-nowrap">
-              ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+              ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
             </h1>
             <p className="text-emerald-100 font-medium text-xs md:text-sm">
               นักศึกษา: <span className="font-bold text-white">{user?.displayName}</span> : <span className="font-mono text-emerald-200">{user?.studentCode}</span>
@@ -452,7 +452,7 @@ export default function StudentDashboard() {
 
       {/* 3. Footer */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
-        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        © 2026 ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>

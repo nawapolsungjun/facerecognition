@@ -50,7 +50,7 @@ export default function LoginPage() {
       {/* 1. Header ด้านบนตาม Style ระบบ */}
       <header className="bg-[#0f766e] text-white pt-10 pb-8 px-4 text-center shadow-sm">
         <h1 className="text-3xl md:text-4xl font-black tracking-tight mb-2">
-          ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+          ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
         </h1>
         <p className="text-emerald-100 font-medium text-xs md:text-sm">
           สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
@@ -127,7 +127,7 @@ export default function LoginPage() {
 
       {/* 3. Footer ด้านล่าง */}
       <footer className="bg-[#0f766e] text-emerald-100 py-4 px-4 text-center text-xs font-medium md:text-sm mt-auto">
-        © 2026 ระบบตรวจสอบรายชื่อด้วยการรู้จำใบหน้า
+        © 2026 ระบบตรวจสอบรายชื่อด้วยเทคโนโลยีการรู้จำใบหน้า
         <p className="text-emerald-100 font-medium text-xs md:text-sm mt-0.5">
           สาขาวิชานวัตกรรมระบบสารสนเทศ คณะบริหารธุรกิจ มหาวิทยาลัยเทคโนโลยีราชมงคลกรุงเทพ
         </p>
